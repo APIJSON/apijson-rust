@@ -1,0 +1,99 @@
+services:
+  mysql:
+    image: mysql:8.0.37
+    container_name: panda-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-panda_db}
+      MYSQL_USER: ${MYSQL_USER:-panda_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-panda123}
+      TZ: Asia/Shanghai
+      LANG: C.UTF-8
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./.docker/mysql/conf.d:/etc/mysql/conf.d
+      - ./.docker/mysql/init:/.docker-entrypoint-initdb.d
+    command: >
+      --default-authentication-plugin=caching_sha2_password
+      --innodb-flush-log-at-trx-commit=1
+      --innodb-buffer-pool-size=512M
+      --innodb-log-file-size=256M
+      --tmp-table-size=64M
+      --max-heap-table-size=64M
+      --max-connections=1024
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_0900_ai_ci
+      --default-time-zone=+08:00
+      --sql-mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,ONLY_FULL_GROUP_BY
+      --lower_case_table_names=1
+      --log-bin=mysql-bin
+      --sync-binlog=1
+      --binlog-format=ROW
+      --expire_logs_days=7
+      --binlog_expire_logs_seconds=604800
+      --max-binlog-size=100M
+      --server-id=1
+    networks:
+      - panda-network
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+      
+  postgresql:
+    image: postgres:16
+    container_name: panda-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-panda_db}
+      POSTGRES_USER: ${POSTGRES_USER:-panda_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-panda123}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./.docker/postgres/init:/.docker-entrypoint-initdb.d
+    networks:
+      - panda-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-panda_user} -d ${POSTGRES_DB:-panda_db}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis for caching (optional but recommended)
+  redis:
+    image: redis:latest
+    container_name: panda-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - panda-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mysql_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  panda-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
