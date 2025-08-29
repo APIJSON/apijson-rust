@@ -1,43 +1,43 @@
+//! Panda Base 主程序入口
+//! 
+//! 负责应用的启动和初始化
+
 pub mod app;
 
 use log::info;
-use app::startup::AppStartup;
+use crate::app::{
+    startup::AppStartup,
+    server::start_server,
+};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
-    init_tk_log();
+    env_logger::init();
     
-    info!("Panda Base 应用启动中...");
+    info!("🚀 启动 Panda Base 应用...");
     
-    // 初始化多数据源系统
-    match AppStartup::initialize(None).await {
+    // 初始化应用
+    let datasource_manager = match AppStartup::initialize(None).await {
         Ok(manager) => {
-            info!("应用启动成功！");
-            
-            // 打印统计信息
-            let stats = AppStartup::get_statistics(&manager);
-            info!("系统统计信息:\n{}", stats);
-            
-            // 这里可以添加其他应用逻辑
-            info!("应用正在运行...");
-            
-            // 保持应用运行
-            tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl+c");
-            info!("收到退出信号，应用正在关闭...");
+            info!("✅ 应用初始化成功");
+            manager
         },
         Err(e) => {
-            eprintln!("应用启动失败: {}", e);
-            std::process::exit(1);
+            eprintln!("❌ 应用初始化失败: {}", e);
+            return Err(e.into());
         }
-    }
-}
-
-
-//初始化tk log
-fn init_tk_log() {
-    tklog::LOG.set_console(true)
-        .set_level(tklog::LEVEL::Info)
-        .set_formatter("{time} | {level} | {file} | {message}\n")
-        .uselog();  // 启用官方log库
+    };
+    
+    // 打印统计信息
+    let stats = AppStartup::get_statistics(&datasource_manager);
+    info!("📊 应用统计信息:\n{}", stats);
+    
+    // 启动HTTP服务器
+    let port = 8080;
+    info!("🌐 启动HTTP服务器，端口: {}", port);
+    
+    start_server(datasource_manager, port).await?;
+    
+    Ok(())
 }

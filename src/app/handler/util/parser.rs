@@ -197,6 +197,7 @@ impl DatabaseTargetParser {
 }
 
 /// 数据库目标解析器的默认值提供者
+#[derive(Debug, Clone)]
 pub struct DatabaseTargetDefaults {
     /// 默认数据源名称
     pub default_datasource: Option<String>,

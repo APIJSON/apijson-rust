@@ -1,4 +1,5 @@
 pub mod handler;
 pub mod datasource;
+pub mod common;
 pub mod startup;
-mod common;
+pub mod server;
