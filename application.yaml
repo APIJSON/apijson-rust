@@ -5,27 +5,17 @@ datasource:
   # MySQL 数据源配置
   - name: ds_mysql
     kind: mysql
-    username: panda_user
-    password: "panda123"
-    url: "mysql://panda_user:panda123@localhost:3306"
-    database: ["panda_db"]
+    username: ${MYSQL_USER:-panda_user}
+    password: ${MYSQL_PASSWORD:-panda123}
+    url: "mysql://${MYSQL_USER:-panda_user}:${MYSQL_PASSWORD:-panda123}@${MYSQL_HOST:-localhost}:${MYSQL_PORT:-3306}"
+    database: ["panda_db_1", "panda_db_2"]
     default: true
     
   # PostgreSQL 数据源配置
   - name: ds_pg
     kind: postgres
-    username: panda_user
-    password: "panda123"
-    url: "postgres://panda_user:panda123@localhost:5432"
-    database: ["panda_db"]
+    username: ${POSTGRES_USER:-panda_user}
+    password: ${POSTGRES_PASSWORD:-panda123}
+    url: "postgres://${POSTGRES_USER:-panda_user}:${POSTGRES_PASSWORD:-panda123}@${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}"
+    database: ["panda_db_3"]
     default: false
-
-# 注意事项：
-# 1. 至少需要配置一个数据源
-# 2. 必须有且仅有一个数据源设置为 default: true
-# 3. 数据源名称必须唯一
-# 4. 每个数据源的数据库列表不能为空
-# 5. URL 格式：
-#    - MySQL: mysql://username:password@host:port
-#    - PostgreSQL: postgres://username:password@host:port
-# 6. 如果 URL 中已包含用户名和密码，会优先使用 URL 中的信息

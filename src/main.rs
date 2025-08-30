@@ -12,8 +12,11 @@ use crate::app::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 优先尝试加载 .env（如果存在则加载；不存在则忽略）
+    let _ = dotenvy::dotenv();
+
     // 初始化日志
-    env_logger::init();
+    init_tk_log();
     
     info!("🚀 启动 Panda Base 应用...");
     
@@ -40,4 +43,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_server(datasource_manager, port).await?;
     
     Ok(())
+}
+
+//初始化tk log
+fn init_tk_log() {
+    tklog::LOG.set_console(true)
+        .set_level(tklog::LEVEL::Info)
+        .set_formatter("{time} | {level} | {file} | {message}\n")
+        .uselog();  // 启用官方log库
 }

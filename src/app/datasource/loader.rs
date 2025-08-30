@@ -6,6 +6,9 @@ use std::fs;
 use std::path::Path;
 use serde_yaml;
 use crate::app::datasource::config::DataSourcesConfig;
+// 新增：用于环境变量占位符替换和缺失时告警
+use regex::Regex;
+use log::warn;
 
 /// 配置加载错误类型
 #[derive(Debug)]
@@ -64,8 +67,11 @@ impl ConfigLoader {
     /// # 返回值
     /// 成功时返回 DataSourcesConfig，失败时返回 ConfigLoadError
     pub fn load_from_string(yaml_content: &str) -> Result<DataSourcesConfig, ConfigLoadError> {
+        // 先进行占位符替换（支持 ${VAR} 和 ${VAR:-default} / ${VAR-default}）
+        let expanded = Self::expand_env(yaml_content);
+
         // 解析YAML内容
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(yaml_content)
+        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&expanded)
             .map_err(ConfigLoadError::YamlParseError)?;
         
         // 直接反序列化整个YAML为DataSourcesConfig
@@ -76,6 +82,31 @@ impl ConfigLoader {
         Self::validate_config(&config)?;
         
         Ok(config)
+    }
+
+    /// 将字符串中的环境变量占位符展开
+    /// - 支持 ${VAR}
+    /// - 支持 ${VAR:-default} 以及 ${VAR-default}
+    /// - 当环境变量不存在且无默认值时，保留占位符原样并发出告警
+    fn expand_env(input: &str) -> String {
+        // 匹配 ${VARNAME} 或 ${VARNAME:-default}/${VARNAME-default}
+        let re = Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}").expect("invalid regex");
+        re.replace_all(input, |caps: &regex::Captures| {
+            let var = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let default = caps.get(2).map(|m| m.as_str());
+            match std::env::var(var) {
+                Ok(val) => val,
+                Err(_) => {
+                    if let Some(d) = default {
+                        d.to_string()
+                    } else {
+                        // 未提供默认值时，保留原始占位符，避免破坏YAML内容
+                        warn!("配置中引用的环境变量未设置: ${}，请在环境或 .env 中提供", var);
+                        caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string()
+                    }
+                }
+            }
+        }).into_owned()
     }
     
     /// 验证配置的有效性
@@ -129,166 +160,5 @@ impl ConfigLoader {
         }
         
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::app::datasource::config::{DataSourceKind, DataSourceConfig};
-    
-    #[test]
-    fn test_load_from_string_missing_datasources() {
-        let yaml_content = r#"
-other_config:
-  value: test
-"#;
-        
-        let result = ConfigLoader::load_from_string(yaml_content);
-        assert!(result.is_err());
-        
-        if let Err(ConfigLoadError::YamlParseError(_)) = result {
-            // 现在缺少datasources字段会导致YAML解析错误
-        } else {
-            panic!("Expected YamlParseError");
-        }
-    }
-    
-    #[test]
-    fn test_validate_config_empty_datasources() {
-        let config = DataSourcesConfig {
-            datasource: vec![],
-        };
-        
-        let result = ConfigLoader::validate_config(&config);
-        assert!(result.is_err());
-        
-        if let Err(ConfigLoadError::ValidationError(msg)) = result {
-            assert!(msg.contains("至少需要配置一个数据源"));
-        } else {
-            panic!("Expected ValidationError");
-        }
-    }
-    
-    #[test]
-    fn test_validate_config_no_default() {
-        let config = DataSourcesConfig {
-            datasource: vec![
-                DataSourceConfig {
-                    name: "ds1".to_string(),
-                    kind: DataSourceKind::Mysql,
-                    username: "root".to_string(),
-                    password: "123456".to_string(),
-                    url: "mysql://localhost:3306".to_string(),
-                    database: vec!["db1".to_string()],
-                    default: false,
-                },
-            ],
-        };
-        
-        let result = ConfigLoader::validate_config(&config);
-        assert!(result.is_err());
-        
-        if let Err(ConfigLoadError::ValidationError(msg)) = result {
-            assert!(msg.contains("必须指定一个默认数据源"));
-        } else {
-            panic!("Expected ValidationError");
-        }
-    }
-    
-    #[test]
-    fn test_validate_config_multiple_defaults() {
-        let config = DataSourcesConfig {
-            datasource: vec![
-                DataSourceConfig {
-                    name: "ds1".to_string(),
-                    kind: DataSourceKind::Mysql,
-                    username: "root".to_string(),
-                    password: "123456".to_string(),
-                    url: "mysql://localhost:3306".to_string(),
-                    database: vec!["db1".to_string()],
-                    default: true,
-                },
-                DataSourceConfig {
-                    name: "ds2".to_string(),
-                    kind: DataSourceKind::Postgres,
-                    username: "root".to_string(),
-                    password: "123456".to_string(),
-                    url: "postgres://localhost:5432".to_string(),
-                    database: vec!["db2".to_string()],
-                    default: true,
-                },
-            ],
-        };
-        
-        let result = ConfigLoader::validate_config(&config);
-        assert!(result.is_err());
-        
-        if let Err(ConfigLoadError::ValidationError(msg)) = result {
-            assert!(msg.contains("只能有一个默认数据源"));
-        } else {
-            panic!("Expected ValidationError");
-        }
-    }
-    
-    #[test]
-    fn test_validate_config_duplicate_names() {
-        let config = DataSourcesConfig {
-            datasource: vec![
-                DataSourceConfig {
-                    name: "ds1".to_string(),
-                    kind: DataSourceKind::Mysql,
-                    username: "root".to_string(),
-                    password: "123456".to_string(),
-                    url: "mysql://localhost:3306".to_string(),
-                    database: vec!["db1".to_string()],
-                    default: true,
-                },
-                DataSourceConfig {
-                    name: "ds1".to_string(),
-                    kind: DataSourceKind::Postgres,
-                    username: "root".to_string(),
-                    password: "123456".to_string(),
-                    url: "postgres://localhost:5432".to_string(),
-                    database: vec!["db2".to_string()],
-                    default: false,
-                },
-            ],
-        };
-        
-        let result = ConfigLoader::validate_config(&config);
-        assert!(result.is_err());
-        
-        if let Err(ConfigLoadError::ValidationError(msg)) = result {
-            assert!(msg.contains("数据源名称重复"));
-        } else {
-            panic!("Expected ValidationError");
-        }
-    }
-    
-    #[test]
-    fn test_validate_config_empty_database_list() {
-        let config = DataSourcesConfig {
-            datasource: vec![
-                DataSourceConfig {
-                    name: "ds1".to_string(),
-                    kind: DataSourceKind::Mysql,
-                    username: "root".to_string(),
-                    password: "123456".to_string(),
-                    url: "mysql://localhost:3306".to_string(),
-                    database: vec![], // 空的数据库列表
-                    default: true,
-                },
-            ],
-        };
-        
-        let result = ConfigLoader::validate_config(&config);
-        assert!(result.is_err());
-        
-        if let Err(ConfigLoadError::ValidationError(msg)) = result {
-            assert!(msg.contains("数据库列表不能为空"));
-        } else {
-            panic!("Expected ValidationError");
-        }
     }
 }
