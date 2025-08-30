@@ -1,12 +1,7 @@
 use std::fmt::Debug;
 
-#[derive(Debug, Clone)]
-pub enum DataSourceKind {
-    Mysql,
-    Postgres,
-}
-
 pub trait SqlDialect: Debug + Send + Sync {
+    #[allow(dead_code)]
     fn get_name(&self) -> &str;
     fn escape_identifier(&self, identifier: &str) -> String;
     fn build_columns(&self, columns_str: &str) -> Vec<String>;
@@ -17,6 +12,7 @@ pub trait SqlDialect: Debug + Send + Sync {
 pub struct MySqlDialect;
 
 impl SqlDialect for MySqlDialect {
+    #[allow(dead_code)]
     fn get_name(&self) -> &str {
         "mysql"
     }
@@ -54,6 +50,7 @@ impl SqlDialect for MySqlDialect {
 pub struct PostgreSqlDialect;
 
 impl SqlDialect for PostgreSqlDialect {
+    #[allow(dead_code)]
     fn get_name(&self) -> &str {
         "postgres"
     }

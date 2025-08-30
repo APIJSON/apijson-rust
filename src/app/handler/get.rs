@@ -54,13 +54,13 @@ impl QueryContext {
         for nodes in query_node.values() {
             // 按权重降序排序
             let mut sorted_nodes = nodes.clone();
-            sorted_nodes.sort_unstable_by(|a, b| b.borrow().weight.cmp(&a.borrow().weight));
+            sorted_nodes.sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
             for node in sorted_nodes {
-                let mut node_rc = node.borrow_mut();
-                if node_rc.weight >= RATIO_PRIMARY {
-                    self.query_primary_node(&mut *node_rc, manager).await;
+                let mut node_owned = (*node).clone();
+                if node_owned.weight >= RATIO_PRIMARY {
+                    self.query_primary_node(&mut node_owned, manager).await;
                 } else {
-                    self.query_relate_node(&mut *node_rc, manager).await;
+                    self.query_relate_node(&mut node_owned, manager).await;
                 }
             }
         }
@@ -70,7 +70,7 @@ impl QueryContext {
         // 遍历所有主节点数据（每个主节点路径及其对应的查询结果）
         for (node_path, results) in &self.primary_node_data {
             // 获取当前主节点的引用
-            let node_ref = self.query_node.get(node_path).unwrap().borrow();
+            let node_ref = self.query_node.get(node_path).unwrap().as_ref();
             // 获取命名空间（父节点路径）
             let namespace = get_parent_node_path(node_path);
             // 获取主节点名称
@@ -176,7 +176,7 @@ impl QueryContext {
             .and_then(|field_map| field_map.get(slave_node_field_value_key))
             .and_then(|relate_field_data| {
                 // 检查从节点是否为列表类型
-                let is_list = self.query_node.get(&slave_node_path)?.borrow().is_list;
+                let is_list = self.query_node.get(&slave_node_path)?.is_list;
                 
                 if relate_field_data.is_empty() { // 记录空数据日志
                     log::debug!("slave.data: {}.{} is empty", &slave_node_path, slave_node_field_value_key);

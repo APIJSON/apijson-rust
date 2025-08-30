@@ -4,9 +4,9 @@
 
 use std::sync::Arc;
 use axum::{
-    extract::{Path, Query, State},
-    response::Json,
-    routing::get,
+    extract::Path,
+    Json,
+    routing::{get, post},
     Router,
 };
 use serde_json::{json, Value};
@@ -14,59 +14,60 @@ use std::collections::HashMap;
 use tower_http::cors::CorsLayer;
 use crate::app::{
     datasource::manager::DataSourceManager,
-    handler::get::handle_get,
+    handler::{
+        get::handle_get,
+        head::handle_head,
+        post::handle_post,
+        put::handle_put,
+        delete::handle_delete,
+    },
 };
-
-/// 应用状态
-#[derive(Clone)]
-pub struct AppState {
-    pub datasource_manager: Arc<DataSourceManager>,
-}
 
 /// 创建HTTP服务器路由
 pub fn create_router(datasource_manager: Arc<DataSourceManager>) -> Router {
-    let app_state = AppState {
-        datasource_manager,
+    let mgr = datasource_manager.clone();
+    let curd_handler = move |Path(method): Path<String>, Json(request_data): Json<HashMap<String, serde_json::Value>>| {
+        let mgr = mgr.clone();
+        async move {
+            let method_norm = method.strip_suffix(".json").unwrap_or(&method);
+            let rpc_result = match method_norm {
+                "head" => {
+                    handle_head(mgr.clone(), request_data, None).await
+                }
+                "get" => {
+                    handle_get(&mgr, request_data).await
+                }
+                "put" => {
+                    handle_put(mgr.clone(), request_data, None).await
+                }
+                "post" => {
+                    handle_post(mgr.clone(), request_data, None).await
+                }
+                "delete" => {
+                    handle_delete(mgr.clone(), request_data).await
+                }
+                _ => {
+                    return Json(json!({
+                        "code": 400u16,
+                        "data": serde_json::Value::Null,
+                        "msg": format!("unknown method: {}", method_norm)
+                    }));
+                }
+            };
+            Json(json!({
+                "code": rpc_result.code as u16,
+                "data": rpc_result.data,
+                "msg": rpc_result.msg
+            }))
+        }
     };
 
     Router::new()
-        // .route("/api/v1/:datasource/:database/:table", get(query_handler))
+        // 动态派发CRUD操作，形如：/get.json、/post.json、/put.json、/delete.json、/head.json
+        // 这里使用 `/:method` 捕获，包括带有 .json 后缀的情形（例如 get.json），在处理器中去掉后缀
+        .route("/:method", post(curd_handler))
         .route("/health", get(health_check))
         .layer(CorsLayer::permissive())
-        .with_state(app_state)
-}
-
-/// 查询处理器
-async fn query_handler(
-    Path((datasource, database, table)): Path<(String, String, String)>,
-    Query(params): Query<HashMap<String, String>>,
-    State(state): State<AppState>,
-) -> Json<Value> {
-    // 构建查询参数
-    let mut query_params = HashMap::new();
-    
-    // 添加基本参数
-    query_params.insert("datasource".to_string(), json!(datasource));
-    query_params.insert("database".to_string(), json!(database));
-    query_params.insert("table".to_string(), json!(table));
-    
-    // 添加查询参数
-    for (key, value) in params {
-        query_params.insert(key, json!(value));
-    }
-    
-    // 调用查询处理器
-    let result = handle_get(
-        &state.datasource_manager,
-        query_params,
-    ).await;
-    
-    // 转换结果
-    Json(json!({
-        "code": result.code as u16,
-        "data": result.data,
-        "msg": result.msg
-    }))
 }
 
 /// 健康检查

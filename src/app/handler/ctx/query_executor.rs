@@ -41,6 +41,7 @@ impl QueryExecutor {
         }
     }
     
+    #[allow(dead_code)]
     pub fn get_params(&self) -> Vec<serde_json::Value> {
         self.params.clone()
     }
@@ -57,6 +58,7 @@ impl QueryExecutor {
         }).collect()
     }
 
+    #[allow(dead_code)]
     pub async fn exec(&self, db: &DBConn) -> Result<Vec<HashMap<String, serde_json::Value>>, sqlx::Error> {
         let sql = self.to_sql();
         log::info!("sql.exec: {}, params: {}", sql, serde_json::to_string(&self.params).unwrap());

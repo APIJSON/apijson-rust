@@ -1,6 +1,5 @@
 use fnv::FnvHashMap;
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::Arc;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use crate::app::common::rpc::HttpCode;
 use crate::app::handler::ctx::query_executor::QueryExecutor;
@@ -29,11 +28,11 @@ pub struct QueryContext {
     pub slave_relate_kv: FnvHashMap<String, HashMap<String, String>>,
 
     // 分层节点，层级: 节点列表
-    pub layer_query_node: BTreeMap<i32, Vec<Rc<RefCell<QueryNode>>>>,
+    pub layer_query_node: BTreeMap<i32, Vec<Arc<QueryNode>>>,
     // 命名空间节点
     pub namespace_node: FnvHashMap<String, FnvHashMap<String, serde_json::Value>>,
     // 数据查询节点，节点路径: 节点
-    pub query_node: FnvHashMap<String, Rc<RefCell<QueryNode>>>,
+    pub query_node: FnvHashMap<String, Arc<QueryNode>>,
 
     // 主节点数据列表(节点路径 -> 结果数据)，主节点就是每一个命名空间的主查询节点
     pub primary_node_data: FnvHashMap<String, Vec<HashMap<String, serde_json::Value>>>,
@@ -41,9 +40,12 @@ pub struct QueryContext {
     pub primary_node_related_field_values: FnvHashMap<String, serde_json::Value>,
     // 从节点关联字段映射表(从节点父路径 -> 字段对应的值), 用于主节点获取从节点数据
     pub slave_node_relate_data: FnvHashMap<String, FnvHashMap<String, Vec<HashMap<String, serde_json::Value>>>>,
+
+    // 节点权重（不在节点内存储权重，避免可变共享状态）
+    pub node_weight: FnvHashMap<String, i32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct QueryNode {
     // 节点名称
     pub name: String,
@@ -53,7 +55,7 @@ pub struct QueryNode {
     pub is_list: bool,
     /// 属性映射
     pub attributes: HashMap<String, serde_json::Value>,
-    // 权重
+    // 权重（不再使用，由 QueryContext.node_weight 管理，保留字段以兼容）
     pub weight: i32,
     // SQL执行器，负责生成和执行SQL
     pub sql_executor: QueryExecutor,
@@ -67,11 +69,11 @@ impl QueryContext {
         let mut json_vec_deque: VecDeque<(String, String, serde_json::Value, i32)> = VecDeque::new();
 
         // 分层节点，层级: 节点列表
-        let mut layer_query_node: BTreeMap<i32, Vec<Rc<RefCell<QueryNode>>>> = BTreeMap::default();
+        let mut layer_query_node: BTreeMap<i32, Vec<Arc<QueryNode>>> = BTreeMap::default();
         // 初始化数据结构，用于构建查询上下文
         let mut namespace_node = FnvHashMap::default();
         // 数据查询节点，节点路径: 节点
-        let mut query_node: FnvHashMap<String, Rc<RefCell<QueryNode>>> = FnvHashMap::default();
+        let mut query_node: FnvHashMap<String, Arc<QueryNode>> = FnvHashMap::default();
 
         // 主节点字段映射表(主节点路径 -> 主节点字段 -> 指向从节点关联字段路径)
         let mut primary_relate_kv: FnvHashMap<String, HashMap<String, String>> = FnvHashMap::default();
@@ -159,14 +161,14 @@ impl QueryContext {
                 }
                 
                 // 创建查询节点并添加到对应深度的节点列表中
-                let shared_node = Rc::new(RefCell::new(QueryNode {
+                let shared_node = Arc::new(QueryNode {
                     name: (&name).to_string(),
                     path: node_path.clone(),
                     weight: 0,
                     is_list,
                     attributes,
                     sql_executor: QueryExecutor::new(datasource_kind.clone()),
-                }));
+                });
                 layer_query_node.entry(depth).or_default().push(shared_node.clone());
                 query_node.insert(node_path, shared_node);
             }
@@ -184,6 +186,7 @@ impl QueryContext {
             primary_node_related_field_values,
             slave_node_relate_data: FnvHashMap::default(),
             primary_node_data: FnvHashMap::default(),
+            node_weight: FnvHashMap::default(),
         };
         ctx.compute_node_weight();
         ctx
@@ -192,12 +195,12 @@ impl QueryContext {
     /// 计算每个节点的权重
     fn compute_node_weight(&mut self) {
         // 收集所有节点引用，将多层嵌套的节点扁平化为一个列表
-        let all_nodes: Vec<Rc<RefCell<QueryNode>>> = self.layer_query_node.values().flatten().cloned().collect();
+        let all_nodes: Vec<Arc<QueryNode>> = self.layer_query_node.values().flatten().cloned().collect();
 
         // 统计每个节点被依赖的次数，用于后续权重计算
         let mut counts: HashMap<String, u32> = HashMap::new();
         for node_rc in &all_nodes {
-            let node_path = node_rc.borrow().path.clone();
+            let node_path = node_rc.path.clone();
             // 检查当前节点是否有从属关系映射
             if let Some(relate) = self.slave_relate_kv.get(&node_path) {
                 // 遍历所有从属关系映射值（主节点路径）
@@ -215,15 +218,14 @@ impl QueryContext {
         // 2. 被依赖的节点获得额外权重 RATIO_RELATED^count
         for node_rc in &all_nodes {
             let (path, has_dep) = {
-                let b = node_rc.borrow();
-                let b_path = b.path.clone();
+                let b_path = node_rc.path.clone();
                 let b_relate_kv = self.slave_relate_kv.get(&b_path);
                 (b_path, b_relate_kv.is_some())
             };
             let count = counts.get(&path).copied().unwrap_or(0);
             let addition = if count > 0 { RATIO_RELATED.pow(count) } else { 0 };
             let weight = if !has_dep { RATIO_PRIMARY + addition } else { addition };
-            node_rc.borrow_mut().weight = weight;
+            self.node_weight.insert(path, weight);
         }
     }
 }
@@ -248,9 +250,11 @@ fn collect_scalar_attrs(v: &serde_json::Value) -> FnvHashMap<String, serde_json:
 
 // 获取父节点路径
 // 参数: node_path - 当前节点的完整路径字符串
-// 返回值: 父节点路径字符串，如果没有父节点则返回空字符串
 pub fn get_parent_node_path(node_path: &str) -> String {
-    node_path.rsplit_once('/').map(|(parent, _)| parent.to_string()).unwrap_or_default()
+    match node_path.rfind('/') {
+        Some(position) => node_path[..position].to_string(),
+        None => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -260,14 +264,6 @@ mod tests {
 
     #[test]
     fn test_query_ctx() {
-        use std::collections::HashMap;
-        let mut root = HashMap::new();
-        root.insert("timeline.Moment".to_string(), serde_json::json!({"id": 28710}));
-        root.insert("timeline.User".to_string(), serde_json::json!({"id@": "timeline.Moment/user_id"}));
-        
-        let ctx = QueryContext::from_json(root, DataSourceKind::Mysql, None);
-        for (k, v) in &ctx.layer_query_node {
-            println!("{}: {:?}", k, v);
-        }
+        let _ctx = QueryContext::from_json(serde_json::json!({"a": {"id@": "a/id"}}).as_object().unwrap().clone().into_iter().collect(), DataSourceKind::Mysql, None);
     }
 }
