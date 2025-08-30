@@ -1,8 +1,8 @@
 -- PostgreSQL 16 初始化脚本（数据库/角色/表：users, moments, comments）
 
 -- 1) 创建数据库（若不存在）
-SELECT 'CREATE DATABASE panda_db_3 WITH ENCODING ''UTF8''' 
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'panda_db_3')\gexec
+SELECT 'CREATE DATABASE panda_db WITH ENCODING ''UTF8''' 
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'panda_db')\gexec
 
 -- 2) 创建角色（若不存在）
 DO $$
@@ -15,10 +15,10 @@ BEGIN
 END$$;
 
 -- 3) 授权数据库给角色
-GRANT ALL PRIVILEGES ON DATABASE panda_db_3 TO panda_user;
+GRANT ALL PRIVILEGES ON DATABASE panda_db TO panda_user;
 
 -- 4) 切换到目标数据库
-\connect panda_db_3
+\connect panda_db
 
 -- 5) 表结构：users
 CREATE TABLE IF NOT EXISTS users (

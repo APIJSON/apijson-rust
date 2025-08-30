@@ -1,13 +1,13 @@
 -- Create database if not exists
-CREATE DATABASE IF NOT EXISTS panda_db_1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS panda_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- Create user and grant privileges
 CREATE USER IF NOT EXISTS 'panda_user'@'%' IDENTIFIED BY 'panda123';
-GRANT ALL PRIVILEGES ON panda_db_1.* TO 'panda_user'@'%';
+GRANT ALL PRIVILEGES ON panda_db.* TO 'panda_user'@'%';
 FLUSH PRIVILEGES;
 
 -- Use database
-USE panda_db_1;
+USE panda_db;
 
 -- Users: 基础用户信息，简洁字段
 CREATE TABLE IF NOT EXISTS users (
