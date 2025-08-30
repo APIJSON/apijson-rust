@@ -5,7 +5,7 @@ use sqlx::{
     types::Decimal,
 };
 use std::collections::HashMap;
-use crate::app::datasource::metadata::{put_db_meta, put_db_tables, put_table_meta};
+use crate::app::datasource::metadata::{put_db_meta, put_datasource_db_tables, put_datasource_table_meta};
 use crate::app::datasource::codec::base64_encode;
 use crate::app::datasource::{ColumnMeta, TableMeta};
 
@@ -22,6 +22,8 @@ const MYSQL_SYS_DB: &[&str] = &["information_schema", "mysql", "performance_sche
 pub struct DBConn {
     /// MySQL 连接池
     pool: MySqlPool,
+    /// 数据源名称
+    datasource_name: String,
 }
 
 impl DBConn {
@@ -35,9 +37,12 @@ impl DBConn {
     /// # 返回值
     /// * `Ok(Self)` - 成功创建的数据库连接实例
     /// * `Err(sqlx::Error)` - 连接或初始化过程中发生的错误
-    pub async fn new(url: &str) -> Result<Self, sqlx::Error> {
+    pub async fn new(url: &str, datasource_name: &str) -> Result<Self, sqlx::Error> {
         let pool = MySqlPool::connect(url).await?;
-        let mut ds = Self { pool };
+        let mut ds = Self { 
+            pool,
+            datasource_name: datasource_name.to_string(),
+        };
         ds.init().await?;
         Ok(ds)
     }
@@ -113,7 +118,7 @@ impl DBConn {
     /// # 返回值
     /// * `Ok(())` - 成功加载所有表信息
     /// * `Err(sqlx::Error)` - 查询或处理过程中发生的错误
-    async fn load_db_table(&mut self, schema: &str) -> Result<(), sqlx::Error> {
+    pub async fn load_db_table(&mut self, schema: &str) -> Result<(), sqlx::Error> {
         // 构造查询表信息的 SQL 语句，只查询基础表（BASE TABLE）
         let list_db_table_sql = format!(
             "SELECT TABLE_NAME, TABLE_COMMENT
@@ -165,14 +170,14 @@ impl DBConn {
             log::info!("mysql.table: {}.{} loaded", schema, &table_name);
 
             // 将表元数据存入外部缓存
-            put_table_meta(schema, &table_name, table_meta);
+            put_datasource_table_meta(&self.datasource_name, schema, &table_name, table_meta);
             
             // 将表名添加到表名列表中
             table_name_list.push(table_name);
         }
 
         // 将当前数据库的表列表存入外部缓存
-        put_db_tables(schema.to_string(), table_name_list);
+        put_datasource_db_tables(&self.datasource_name, schema.to_string(), table_name_list);
 
         Ok(())
     }

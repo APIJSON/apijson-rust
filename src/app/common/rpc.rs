@@ -1,5 +1,5 @@
 /// 标准RPC响应结构体
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RpcResult<T: serde::Serialize> {
     /// HTTP状态码，与http::StatusCode一致
     pub code: HttpCode,

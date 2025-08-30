@@ -50,6 +50,18 @@ impl DatabaseConnection {
         }
     }
 
+    /// 加载数据库表信息到缓存
+    pub async fn load_db_table(&mut self, schema: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match self {
+            DatabaseConnection::Mysql(conn) => {
+                conn.load_db_table(schema).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            }
+            DatabaseConnection::Postgres(conn) => {
+                conn.load_db_table(schema).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            }
+        }
+    }
+
     /// 查询记录数
     pub async fn count(&self, sql: &str, params: Vec<String>) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
         match self {
@@ -114,13 +126,21 @@ impl DataSourceManager {
                 
                 let db_connection = match datasource.kind {
                     DataSourceKind::Mysql => {
-                        let conn = DBConn::new(&connection_url).await
+                        let mut conn = DBConn::new(&connection_url, &datasource.name).await
                             .map_err(|e| format!("Failed to connect to MySQL database {}: {}", database, e))?;
+                        // 加载表信息到缓存
+                        if let Err(e) = conn.load_db_table(database).await {
+                            log::warn!("Failed to load table metadata for MySQL database {}: {}", database, e);
+                        }
                         DatabaseConnection::Mysql(conn)
                     }
                     DataSourceKind::Postgres => {
-                        let conn = PgConn::new(&connection_url).await
+                        let mut conn = PgConn::new(&connection_url, &datasource.name).await
                             .map_err(|e| format!("Failed to connect to PostgreSQL database {}: {}", database, e))?;
+                        // 加载表信息到缓存
+                        if let Err(e) = conn.load_db_table(database).await {
+                            log::warn!("Failed to load table metadata for PostgreSQL database {}: {}", database, e);
+                        }
                         DatabaseConnection::Postgres(conn)
                     }
                 };

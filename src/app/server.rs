@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 use axum::{
-    extract::Path,
+    extract::{Path, Query},
     Json,
     routing::{get, post},
     Router,
@@ -20,6 +20,7 @@ use crate::app::{
         post::handle_post,
         put::handle_put,
         delete::handle_delete,
+        datasource::handle_datasource,
     },
 };
 
@@ -54,11 +55,24 @@ pub fn create_router(datasource_manager: Arc<DataSourceManager>) -> Router {
                     }));
                 }
             };
-            Json(json!({
-                "code": rpc_result.code as u16,
-                "data": rpc_result.data,
-                "msg": rpc_result.msg
-            }))
+            Json(serde_json::to_value(rpc_result).unwrap())
+        }
+    };
+    
+    // 数据源相关操作处理器
+    let mgr_datasource = datasource_manager.clone();
+    let datasource_handler = move |Path((datasource, action)): Path<(String, String)>, Query(query_params): Query<HashMap<String, String>>| {
+        let mgr = mgr_datasource.clone();
+        async move {
+            // 将路径参数和查询参数合并
+            let mut request_data: HashMap<String, serde_json::Value> = query_params
+                .into_iter()
+                .map(|(k, v)| (k, serde_json::Value::String(v)))
+                .collect();
+            // 将datasource参数添加到请求数据中
+            request_data.insert("datasource".to_string(), serde_json::Value::String(datasource));
+            let rpc_result = handle_datasource(&mgr, &action, request_data).await;
+            Json(serde_json::to_value(rpc_result).unwrap())
         }
     };
 
@@ -66,6 +80,8 @@ pub fn create_router(datasource_manager: Arc<DataSourceManager>) -> Router {
         // 动态派发CRUD操作，形如：/get.json、/post.json、/put.json、/delete.json、/head.json
         // 这里使用 `/:method` 捕获，包括带有 .json 后缀的情形（例如 get.json），在处理器中去掉后缀
         .route("/:method", post(curd_handler))
+        // 数据源相关操作接口（动态路由）
+        .route("/:datasource/:action", get(datasource_handler))
         .route("/health", get(health_check))
         .layer(CorsLayer::permissive())
 }
@@ -89,7 +105,9 @@ pub async fn start_server(
     
     println!("🚀 服务器启动成功！");
     println!("📍 监听地址: http://localhost:{}", port);
-    println!("🔍 API示例: http://localhost:{}/api/v1/ds_mysql/panda_db/user", port);
+    println!("🔍 API示例: http://localhost:{}/[get|post|put|delete|head].json", port);
+    println!("📊 数据源信息: http://localhost:{}/ds_mysql/info", port);
+    println!("📋 数据库表详情: http://localhost:{}/ds_mysql/tables?database=panda_db", port);
     println!("💚 健康检查: http://localhost:{}/health", port);
     
     axum::serve(listener, app).await?;
