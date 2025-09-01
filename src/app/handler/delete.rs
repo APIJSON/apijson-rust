@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 use log::{debug, info, warn, error};
-use crate::app::common::rpc::{RpcResult, HttpCode};
+use crate::app::common::rpc::{HttpCode};
 use crate::app::datasource::manager::{DataSourceManager, DatabaseConnection};
 use crate::app::datasource::dialect::SqlBuilder;
-use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults, DatabaseTarget};
+use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults, DatabaseTarget, new_ok_result, new_err_result};
 use std::sync::Arc;
-use serde_json::Value;
+use serde_json::{Value, Map};
 
 /// 处理删除数据的请求
 ///
@@ -15,24 +14,16 @@ use serde_json::Value;
 ///
 pub async fn handle_delete(
     datasource_manager: Arc<DataSourceManager>,
-    body_map: HashMap<String, Value>,
-) -> RpcResult<HashMap<String, Value>> {
+    body_map: Map<String, Value>,
+) -> Map<String, Value> {
     info!("开始处理删除请求，包含 {} 个表项", body_map.len());
     debug!("删除请求体: {:?}", body_map);
-    
-    let mut rpc_result = RpcResult {
-        code: HttpCode::Ok,
-        msg: None,
-        data: None,
-    };
 
     // 解析请求体
     let parse_result = DatabaseTargetParser::parse_request_body(body_map);
     if !parse_result.errors.is_empty() {
         error!("解析请求体失败: {:?}", parse_result.errors);
-        rpc_result.code = HttpCode::BadRequest;
-        rpc_result.msg = Some(format!("请求解析失败: {}", parse_result.errors.join(", ")));
-        return rpc_result;
+        return new_err_result(HttpCode::BadRequest, parse_result.errors.join(", ").as_str());
     }
     
     info!("成功解析 {} 个数据项", parse_result.items.len());
@@ -44,7 +35,7 @@ pub async fn handle_delete(
         Some("public".to_string()),
     );
 
-    let mut result_payload = HashMap::<String, Value>::new();
+    let mut result_payload = Map::<String, Value>::new();
 
     // 处理每个数据项
     for item in parse_result.items {
@@ -53,9 +44,11 @@ pub async fn handle_delete(
         // 验证目标完整性
         if let Err(err) = defaults.validate_target(&target) {
             warn!("目标验证失败: {}", err);
-            rpc_result.code = HttpCode::BadRequest;
-            result_payload.insert(target.table.clone(), Value::String(err));
-            continue;
+            return new_err_result(HttpCode::BadRequest, err.as_str());
+
+            // rpc_result.code = HttpCode::BadRequest;
+            // result_payload.insert(target.table.clone(), Value::String(err));
+            // continue;
         }
 
         // 执行删除操作
@@ -66,18 +59,13 @@ pub async fn handle_delete(
             }
             Err(err) => {
                 error!("删除失败，表: {}, 错误: {}", target.table, err);
-                rpc_result.code = HttpCode::InternalServerError;
-                result_payload.insert(target.table, Value::String(err));
+                return new_err_result(HttpCode::InternalServerError, err.as_str());
             }
         }
     }
 
-    if !result_payload.is_empty() {
-        rpc_result.data = Some(result_payload);
-    }
-    
     info!("删除请求处理完成");
-    rpc_result
+    return new_ok_result(result_payload)
 }
 
 /// 执行数据删除操作
@@ -95,7 +83,7 @@ pub async fn handle_delete(
 async fn delete_one(
     datasource_manager: &DataSourceManager,
     target: &DatabaseTarget,
-    data: &HashMap<String, Value>,
+    data: &Map<String, Value>,
 ) -> Result<u64, String> {
     let datasource_name = target.datasource.as_ref().ok_or("数据源名称为空")?;
     let database_name = target.database.as_ref().ok_or("数据库名称为空")?;

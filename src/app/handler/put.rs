@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use log::{info, warn, error, debug};
 use crate::app::datasource::manager::DataSourceManager;
 use crate::app::datasource::dialect::SqlBuilder;
-use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults};
-use crate::app::common::rpc::{RpcResult, HttpCode};
+use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults, new_err_result, new_ok_result};
+use crate::app::common::rpc::{HttpCode};
+use serde_json::{Value, Map};
 
 /// 处理数据更新请求
 /// 
@@ -34,17 +34,11 @@ use crate::app::common::rpc::{RpcResult, HttpCode};
 /// ```
 pub async fn handle_put(
     datasource_manager: Arc<DataSourceManager>,
-    body_map: HashMap<String, serde_json::Value>,
+    body_map: Map<String, serde_json::Value>,
     defaults: Option<DatabaseTargetDefaults>,
-) -> RpcResult<HashMap<String, serde_json::Value>> {
+) -> Map<String, serde_json::Value> {
     info!("开始处理PUT请求");
     debug!("请求数据: {:?}", body_map);
-    
-    let mut rpc_result = RpcResult::<HashMap<String, serde_json::Value>>{ 
-        code: HttpCode::Ok, 
-        msg: None, 
-        data: None 
-    };
 
     // 解析请求体
     let parse_result = DatabaseTargetParser::parse_request_body(body_map);
@@ -52,9 +46,7 @@ pub async fn handle_put(
     // 检查解析错误
     if !parse_result.errors.is_empty() {
         warn!("请求解析失败: {:?}", parse_result.errors);
-        rpc_result.code = HttpCode::BadRequest;
-        rpc_result.msg = Some(format!("请求解析失败: {}", parse_result.errors.join(", ")));
-        return rpc_result;
+        return new_err_result(HttpCode::BadRequest, parse_result.errors.join("; ").as_str());
     }
     
     info!("请求解析成功，共解析到 {} 个数据项", parse_result.items.len());
@@ -69,16 +61,14 @@ pub async fn handle_put(
         parse_result.items
     };
 
-    let mut result_payload = HashMap::new();
-    
+    let mut result_payload = Map::new();
+
     for item in items_with_defaults {
         // 验证目标完整性
         if item.target.datasource.is_none() || item.target.database.is_none() || item.target.schema.is_none() {
             error!("缺少必要的数据库目标信息: datasource={:?}, database={:?}, schema={:?}", 
                    item.target.datasource, item.target.database, item.target.schema);
-            rpc_result.code = HttpCode::BadRequest;
-            rpc_result.msg = Some("缺少必要的数据库目标信息".to_string());
-            return rpc_result;
+            return new_err_result(HttpCode::BadRequest, "缺少必要的数据库目标信息");
         }
         
         let target = item.target;
@@ -104,16 +94,12 @@ pub async fn handle_put(
             },
             Err(err) => {
                 error!("更新操作失败: {}.{}.{}.{}, 错误: {}", datasource_name, database_name, schema_name, target.table, err);
-                rpc_result.code = HttpCode::BadRequest;
-                result_payload.insert(target.table.clone(), serde_json::json!(err));
+                return new_err_result(HttpCode::BadRequest, err.as_str());
             }
         }
     }
-    
-    if !result_payload.is_empty() {
-        rpc_result.data = Some(result_payload);
-    }
-    rpc_result
+
+    return new_ok_result(result_payload)
 }
 
 /// 执行单条记录的更新操作
@@ -135,7 +121,7 @@ async fn update_one(
     database_name: &str,
     schema: &str,
     table: &str,
-    data: &HashMap<String, serde_json::Value>,
+    data: &Map<String, serde_json::Value>,
 ) -> Result<i64, String> {
     debug!("开始执行单条更新操作: {}.{}.{}.{}", datasource_name, database_name, schema, table);
     debug!("更新数据: {:?}", data);

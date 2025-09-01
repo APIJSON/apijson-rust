@@ -1,16 +1,16 @@
-use std::collections::HashMap;
 use log::{info, warn, error, debug};
-use crate::app::common::rpc::{RpcResult, HttpCode};
+use crate::app::common::rpc::{HttpCode};
 use crate::app::datasource::manager::DataSourceManager;
 use crate::app::datasource::dialect::SqlBuilder;
-use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults};
+use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults, new_err_result, new_ok_result, KEY_CODE, KEY_MSG};
 use std::sync::Arc;
+use serde_json::{Value, Map, json};
 
 /// 处理HEAD请求的异步方法，主要用于检查表是否存在和记录计数
 ///
 /// # 参数
 /// * `datasource_manager` - 数据源管理器
-/// * `body_map` - 包含请求参数的HashMap，键为表名(String)，值为查询条件(serde_json::Value)
+/// * `body_map` - 包含请求参数的HashMap，键为表名(String)，值为查询条件(Value)
 /// * `defaults` - 默认值提供者
 ///
 /// # 返回值
@@ -22,17 +22,13 @@ use std::sync::Arc;
 /// - 如果查询失败，返回错误信息
 pub async fn handle_head(
     datasource_manager: Arc<DataSourceManager>,
-    body_map: HashMap<String, serde_json::Value>,
+    body_map: Map<String, Value>,
     defaults: Option<DatabaseTargetDefaults>,
-) -> RpcResult<HashMap<String, serde_json::Value>> {
+) -> Map<String, Value> {
     info!("开始处理HEAD请求");
     debug!("请求数据: {:?}", body_map);
-    
-    let mut rpc_result = RpcResult {
-        code: HttpCode::Ok,
-        msg: None,
-        data: None,
-    };
+
+    let mut result_payload: Map<String, Value> = Map::new();
 
     // 解析请求体
     let parse_result = DatabaseTargetParser::parse_request_body(body_map);
@@ -40,14 +36,12 @@ pub async fn handle_head(
     // 如果有解析错误，直接返回
     if !parse_result.errors.is_empty() {
         warn!("请求解析失败: {:?}", parse_result.errors);
-        rpc_result.code = HttpCode::BadRequest;
-        rpc_result.msg = Some(format!("解析错误: {}", parse_result.errors.join("; ")));
-        return rpc_result;
+        result_payload = new_err_result(HttpCode::BadRequest, parse_result.errors.join("; ").as_str());
+        return result_payload;
     }
     
     info!("请求解析成功，共解析到 {} 个数据项", parse_result.items.len());
 
-    let mut result_payload = HashMap::new();
     let defaults = defaults.unwrap_or_else(|| {
         DatabaseTargetDefaults::new(None, None, Some("public".to_string()))
     });
@@ -76,17 +70,13 @@ pub async fn handle_head(
             },
             Err(err) => {
                 error!("查询失败: {}", err);
-                rpc_result.code = HttpCode::BadRequest;
-                result_payload.insert(target.table.clone(), serde_json::Value::String(err));
+                result_payload = new_err_result(HttpCode::BadRequest, err.as_str());
                 break;
             }
         }
     }
-    
-    if !result_payload.is_empty() {
-        rpc_result.data = Some(result_payload);
-    }
-    rpc_result
+
+    return new_ok_result(result_payload);
 }
 
 async fn count_one(
@@ -95,8 +85,8 @@ async fn count_one(
     database_name: &str,
     schema: &str,
     table: &str,
-    conditions: &HashMap<String, serde_json::Value>,
-) -> Result<serde_json::Value, String> {
+    conditions: &Map<String, Value>,
+) -> Result<Value, String> {
     debug!("开始处理查询: {}.{}, 条件数量: {}", schema, table, conditions.len());
     
     // 获取数据库连接
@@ -118,7 +108,7 @@ async fn count_one(
         .unwrap_or("*");
     
     // 过滤掉@开头的特殊参数，只保留查询条件
-    let query_conditions: HashMap<String, serde_json::Value> = conditions
+    let query_conditions: Map<String, Value> = conditions
         .iter()
         .filter(|(key, _)| !key.starts_with('@'))
         .map(|(k, v)| (k.clone(), v.clone()))
@@ -146,7 +136,7 @@ async fn count_one(
         match connection.query_list(&sql, vec![]).await {
             Ok(rows) => {
                 debug!("查询结果行数: {}", rows.len());
-                Ok(serde_json::json!(rows))
+                Ok(json!(rows))
             },
             Err(e) => {
                 error!("SELECT查询失败: {}", e);
@@ -169,7 +159,7 @@ async fn count_one(
         match connection.count(&sql, vec![]).await {
             Ok(count) => {
                 debug!("统计结果: {}", count);
-                Ok(serde_json::json!(count))
+                Ok(json!(count))
             },
             Err(e) => {
                 error!("COUNT查询失败: {}", e);

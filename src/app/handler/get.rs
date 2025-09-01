@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use fnv::FnvHashMap;
-use crate::app::common::rpc::{RpcResult, HttpCode};
+use serde_json::{Number, Value, Map, json, to_value};
+use indexmap::IndexMap;
+use crate::app::common::rpc::{HttpCode};
 use crate::app::datasource::manager::DataSourceManager;
-use crate::app::handler::ctx::query_context::{get_parent_node_path, QueryContext, QueryNode, RATIO_PRIMARY};
+use crate::app::handler::ctx::query_context::{get_parent_node_path, QueryContext, QueryNode};
 use crate::app::datasource::config::DataSourceKind;
 use crate::app::handler::ctx::query_executor::DEFAULT_MAX_COUNT;
 use crate::app::handler::util::transform::transform_salve_value;
-use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults};
+use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults, KEY_CODE, KEY_MSG, MSG_SUCCESS};
 
 /// 处理GET请求的异步方法
 ///
@@ -16,7 +16,7 @@ use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefa
 ///
 /// # 返回值
 /// 返回serde_json::Value类型的JSON响应数据
-pub async fn handle_get(manager: &DataSourceManager, body_map: HashMap<String, serde_json::Value>) -> RpcResult::<HashMap<String, serde_json::Value>> {
+pub async fn handle_get(manager: &DataSourceManager, body_map: Map<String, Value>) -> Map<String, Value> {
     // 解析数据库目标信息（@datasource、@database、@schema）
     let parse_result = DatabaseTargetParser::parse_request_body(body_map.clone());
     
@@ -46,7 +46,7 @@ pub async fn handle_get(manager: &DataSourceManager, body_map: HashMap<String, s
 }
 
 impl QueryContext {
-    async fn response(&mut self, manager: &DataSourceManager) -> RpcResult::<HashMap<String, serde_json::Value>> {
+    async fn response(&mut self, manager: &DataSourceManager) -> Map<String, Value> {
         // 克隆 query_node 以避免借用冲突
         let query_node = self.layer_query_node.clone();
 
@@ -57,16 +57,16 @@ impl QueryContext {
             sorted_nodes.sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
             for node in sorted_nodes {
                 let mut node_owned = (*node).clone();
-                if node_owned.weight >= RATIO_PRIMARY {
+                // if node_owned.weight >= RATIO_PRIMARY {
                     self.query_primary_node(&mut node_owned, manager).await;
-                } else {
-                    self.query_relate_node(&mut node_owned, manager).await;
-                }
+                // } else {
+                //     self.query_relate_node(&mut node_owned, manager).await;
+                // }
             }
         }
 
         // 构建响应结果映射
-        let mut response_payload = HashMap::new();
+        let mut response_payload = Map::new();
         // 遍历所有主节点数据（每个主节点路径及其对应的查询结果）
         for (node_path, results) in &self.primary_node_data {
             // 获取当前主节点的引用
@@ -82,11 +82,11 @@ impl QueryContext {
 
             if is_list {
                 // 如果主节点是列表类型，遍历每个结果，构建主节点及其关联从节点的嵌套结构
-                let primary_node_result_list: Vec<_> = results.iter()
+                let primary_node_result_list: Vec<IndexMap<String, Value>> = results.iter()
                     .map(|result| self.build_primary_value(&namespace, node_name, result, &primary_relate_kv))
                     .collect();
                 // 将结果列表插入到响应映射中，键为命名空间
-                response_payload.insert(namespace, serde_json::json!(primary_node_result_list));
+                response_payload.insert(namespace, json!(primary_node_result_list));
             } else {
                 // 如果主节点不是列表类型，取第一个结果（若无则用默认值）
                 let result = results.first().cloned().unwrap_or_default();
@@ -99,16 +99,18 @@ impl QueryContext {
             }
         }
 
-        let status_code = self.code;
-        let err_msg = &self.err_msg;
-        RpcResult::<HashMap<String, serde_json::Value>>{ code: status_code, msg: err_msg.to_owned(), data: Some(response_payload) }
+        response_payload.insert(KEY_CODE.to_string(), Value::Number(Number::from(self.code as i32)));
+        response_payload.insert(KEY_MSG.to_string(), Value::String(String::from(&self.err_msg.clone().unwrap_or(
+            if self.code == HttpCode::Ok { MSG_SUCCESS.to_string() } else {"unknown error!".to_string()}
+        ).to_string())));
+        return response_payload
     }
 
-    fn build_primary_value(&self, namespace: &str, primary_node_name: &str, primary_node_data: &HashMap<String, serde_json::Value>, primary_relate_kv: &HashMap<String, String>) -> HashMap<String, serde_json::Value> {
-        let mut result_map = HashMap::<String, serde_json::Value>::new();
+    fn build_primary_value(&self, namespace: &str, primary_node_name: &str, primary_node_data: &IndexMap<String, Value>, primary_relate_kv: &IndexMap<String, String>) -> IndexMap<String, serde_json::Value> {
+        let mut result_map = IndexMap::<String, Value>::new();
 
         // 主节点数据
-        result_map.insert(primary_node_name.to_string(), serde_json::to_value(primary_node_data.clone()).unwrap());
+        result_map.insert(primary_node_name.to_string(), to_value(primary_node_data.clone()).unwrap());
 
         // 从节点数据
         for (primary_field, slave_node_field_path) in primary_relate_kv {
@@ -142,7 +144,7 @@ impl QueryContext {
                     // 如果路径包含"/"，表示需要进行嵌套结构转换
                     if let Some(slave_data) = slave_node_field_data_opt {
                         // 创建一个只有一个键值对的映射，用于转换
-                        let slave_field_value_map = std::iter::once((node_data_relative_path, slave_data)).collect::<HashMap<_, _>>();
+                        let slave_field_value_map = std::iter::once((node_data_relative_path, slave_data)).collect::<IndexMap<_, _>>();
                         // 使用transform_salve_value函数将扁平结构转换为嵌套结构
                         result_map.extend(transform_salve_value(slave_field_value_map));
                     }
@@ -164,7 +166,7 @@ impl QueryContext {
     ///
     /// # 返回值
     /// 返回Option<serde_json::Value>，包含从节点数据的JSON值或None
-    fn get_slave_node_data(&self, slave_node_field_path: &str, slave_node_field_value_key: &str) -> Option<serde_json::Value> {
+    fn get_slave_node_data(&self, slave_node_field_path: &str, slave_node_field_value_key: &str) -> Option<Value> {
         // 获取从节点路径（去除字段名部分）
         let slave_node_path = get_parent_node_path(slave_node_field_path);
         
@@ -182,9 +184,9 @@ impl QueryContext {
                     log::debug!("slave.data: {}.{} is empty", &slave_node_path, slave_node_field_value_key);
                     None
                 } else if is_list { // 列表类型：直接序列化整个数组
-                    Some(serde_json::to_value(relate_field_data).unwrap())
+                    Some(to_value(relate_field_data).unwrap())
                 } else { // 非列表类型：只取第一个元素序列化
-                    Some(serde_json::to_value(&relate_field_data[0]).unwrap())
+                    Some(to_value(&relate_field_data[0]).unwrap())
                 }
             }
         )
@@ -213,14 +215,14 @@ impl QueryContext {
     }
 
     // 处理列表类型结果
-    fn process_list_results(&mut self, node: &QueryNode, results: Vec<HashMap<String, serde_json::Value>>) {
+    fn process_list_results(&mut self, node: &QueryNode, results: Vec<IndexMap<String, Value>>) {
         for result in results {
             for (k, v) in result {
                 let full_path = format!("{}/{}", node.path, k);
                 if let Some(entry) = self.primary_node_related_field_values.get_mut(&full_path) {
                     match entry {
-                        serde_json::Value::Null => *entry = serde_json::Value::Array(vec![v]),
-                        serde_json::Value::Array(arr) => arr.push(v),
+                        Value::Null => *entry = Value::Array(vec![v]),
+                        Value::Array(arr) => arr.push(v),
                         _ => {}
                     }
                 }
@@ -229,7 +231,7 @@ impl QueryContext {
     }
 
     // 处理单个结果
-    fn process_single_result(&mut self, node: &QueryNode, result: &HashMap<String, serde_json::Value>) {
+    fn process_single_result(&mut self, node: &QueryNode, result: &IndexMap<String, Value>) {
         for (k, v) in result {
             let full_path = format!("{}/{}", node.path, k);
             if let Some(existing_value_slot) = self.primary_node_related_field_values.get_mut(&full_path) {
@@ -252,8 +254,8 @@ impl QueryContext {
                     return;
                 }
                 // 如果是数组类型，设置分页大小为数组长度
-                if let serde_json::Value::Array(array) = value {
-                    node.sql_executor.page_size(serde_json::json!(0), serde_json::json!(array.len()));
+                if let Value::Array(array) = value {
+                    node.sql_executor.page_size(json!(0), json!(array.len()));
                 }
                 // 解析查询条件
                 node.sql_executor.parse_condition(field_name, value);
@@ -268,7 +270,7 @@ impl QueryContext {
         if let Some(node_results) = self.query_node_data(node, manager).await {
             // 处理每个关联字段的查询结果
             for (field, _) in &node_relate_kv {
-                let mut field_map = FnvHashMap::<String, Vec<HashMap<String, serde_json::Value>>>::default();
+                let mut field_map: IndexMap<String, Vec<IndexMap<String, Value>>> = IndexMap::default();
                 // 处理字段名后缀@的情况
                 let field_key = if field.ends_with('@') {
                     &field[..field.len() - 1]
@@ -290,15 +292,15 @@ impl QueryContext {
         }
     }
 
-    async fn query_node_data(&mut self, node: &mut QueryNode, manager: &DataSourceManager) -> Option<Vec<HashMap<String, serde_json::Value>>> {
+    async fn query_node_data(&mut self, node: &mut QueryNode, manager: &DataSourceManager) -> Option<Vec<IndexMap<String, Value>>> {
         // 准备SQL查询的基本参数
-        let node_name = &node.name.to_lowercase();
+        let node_name = &node.name; // .to_lowercase();
         let node_path = &node.path;
         let node_attrs = &node.attributes;
         
         // 设置查询的表名
         let _ = node.sql_executor.parse_table(node_name);
-        
+
         // 解析节点属性中的查询条件
         for (key, value) in node_attrs {
             let _ = node.sql_executor.parse_condition(key, value);
@@ -310,12 +312,12 @@ impl QueryContext {
             // 尝试从父节点获取分页参数
             if let Some(parent_node_attrs) = self.namespace_node.get(&parent_path).cloned() {
                 // 获取页码和每页数量，如果不存在则使用默认值
-                let page = parent_node_attrs.get("page").cloned().unwrap_or_else(|| serde_json::json!(0));
-                let count = parent_node_attrs.get("count").cloned().unwrap_or_else(|| serde_json::json!(DEFAULT_MAX_COUNT));
+                let page = parent_node_attrs.get("page").cloned().unwrap_or_else(|| json!(0));
+                let count = parent_node_attrs.get("count").cloned().unwrap_or_else(|| json!(DEFAULT_MAX_COUNT));
                 node.sql_executor.page_size(page, count);
             } else {
                 // 父节点不存在时使用默认分页参数
-                node.sql_executor.page_size(serde_json::json!(0), serde_json::json!(DEFAULT_MAX_COUNT));
+                node.sql_executor.page_size(json!(0), json!(DEFAULT_MAX_COUNT));
             }
         }
         
@@ -327,10 +329,10 @@ impl QueryContext {
         let (datasource_name, database_name) = if let Some(ref defaults) = self.database_defaults {
             (
                 defaults.default_datasource.as_deref().unwrap_or("default"),
-                defaults.default_database.as_deref().unwrap_or("default")
+                defaults.default_database.as_deref().unwrap_or("sys")
             )
         } else {
-            ("default", "default")
+            ("default", "sys")
         };
         
         // 执行查询

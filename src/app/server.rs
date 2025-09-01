@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Value, Map};
 use std::collections::HashMap;
 use tower_http::cors::CorsLayer;
 use crate::app::{
@@ -22,11 +22,13 @@ use crate::app::{
         delete::handle_delete,
     },
 };
+use crate::app::common::rpc::HttpCode;
+use crate::app::handler::util::parser::new_err_result;
 
 /// 创建HTTP服务器路由
 pub fn create_router(datasource_manager: Arc<DataSourceManager>) -> Router {
     let mgr = datasource_manager.clone();
-    let curd_handler = move |Path(method): Path<String>, Json(request_data): Json<HashMap<String, serde_json::Value>>| {
+    let curd_handler = move |Path(method): Path<String>, Json(request_data): Json<Map<String, Value>>| {
         let mgr = mgr.clone();
         async move {
             let method_norm = method.strip_suffix(".json").unwrap_or(&method);
@@ -47,18 +49,10 @@ pub fn create_router(datasource_manager: Arc<DataSourceManager>) -> Router {
                     handle_delete(mgr.clone(), request_data).await
                 }
                 _ => {
-                    return Json(json!({
-                        "code": 400u16,
-                        "data": serde_json::Value::Null,
-                        "msg": format!("unknown method: {}", method_norm)
-                    }));
+                    return Json(json!(new_err_result(HttpCode::MethodNotAllowed, format!("unknown method: {}", method_norm).as_str())));
                 }
             };
-            Json(json!({
-                "code": rpc_result.code as u16,
-                "data": rpc_result.data,
-                "msg": rpc_result.msg
-            }))
+            Json(json!(rpc_result))
         }
     };
 

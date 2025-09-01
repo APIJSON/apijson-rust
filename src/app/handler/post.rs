@@ -1,11 +1,11 @@
-use std::collections::HashMap;
 use log::{info, warn, error, debug};
-use crate::app::common::rpc::{RpcResult, HttpCode};
+use crate::app::common::rpc::{HttpCode};
 use crate::app::common::id::get_next_id;
 use crate::app::datasource::manager::DataSourceManager;
 use crate::app::datasource::dialect::SqlBuilder;
-use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults};
+use crate::app::handler::util::parser::{DatabaseTargetParser, DatabaseTargetDefaults, new_err_result, new_ok_result};
 use std::sync::Arc;
+use serde_json::{Value, Map, Number, json};
 
 /// 处理数据插入请求
 /// 
@@ -20,17 +20,11 @@ use std::sync::Arc;
 /// * 失败：`{"code": 400, "msg": "错误信息"}`
 pub async fn handle_post(
     datasource_manager: Arc<DataSourceManager>,
-    body_map: HashMap<String, serde_json::Value>,
+    body_map: Map<String, Value>,
     defaults: Option<DatabaseTargetDefaults>,
-) -> RpcResult<HashMap<String, serde_json::Value>> {
+) -> Map<String, Value> {
     info!("开始处理POST请求");
     debug!("请求数据: {:?}", body_map);
-    
-    let mut rpc_result = RpcResult {
-        code: HttpCode::Ok,
-        msg: None,
-        data: None,
-    };
 
     // 解析请求体
     let parse_result = DatabaseTargetParser::parse_request_body(body_map);
@@ -38,17 +32,16 @@ pub async fn handle_post(
     // 如果有解析错误，直接返回
     if !parse_result.errors.is_empty() {
         warn!("请求解析失败: {:?}", parse_result.errors);
-        rpc_result.code = HttpCode::BadRequest;
-        rpc_result.msg = Some(format!("解析错误: {}", parse_result.errors.join("; ")));
-        return rpc_result;
+        return new_err_result(HttpCode::BadRequest, parse_result.errors.join("; ").as_str());
     }
     
     info!("请求解析成功，共解析到 {} 个数据项", parse_result.items.len());
 
-    let mut result_payload = HashMap::new();
     let defaults = defaults.unwrap_or_else(|| {
         DatabaseTargetDefaults::new(None, None, Some("public".to_string()))
     });
+
+    let mut result_payload = Map::new();
 
     // 处理每个解析后的数据项
     for item in parse_result.items {
@@ -60,12 +53,13 @@ pub async fn handle_post(
         // 验证目标完整性
         if let Err(err) = defaults.validate_target(&target) {
             error!("目标验证失败: {}, table: {}", err, target.table);
-            rpc_result.code = HttpCode::BadRequest;
-            result_payload.insert(
-                target.table.clone(),
-                serde_json::json!(format!("目标验证失败: {}", err))
-            );
-            continue;
+            return new_err_result(HttpCode::BadRequest, err.as_str());
+
+            // result_payload.insert(
+            //     target.table.clone(),
+            //     json!(format!("目标验证失败: {}", err))
+            // );
+            // continue;
         }
 
         // 执行插入操作
@@ -85,20 +79,16 @@ pub async fn handle_post(
         ).await {
             Ok(id) => {
                 info!("插入操作成功: {}.{}.{}.{}, id={}", datasource_name, database_name, schema_name, target.table, id);
-                result_payload.insert(target.table.clone(), serde_json::json!(id));
+                result_payload.insert(target.table.clone(), json!(id));
             },
             Err(err) => {
                 error!("插入操作失败: {}.{}.{}.{}, 错误: {}", datasource_name, database_name, schema_name, target.table, err);
-                rpc_result.code = HttpCode::BadRequest;
-                result_payload.insert(target.table.clone(), serde_json::Value::String(err));
+                result_payload = new_err_result(HttpCode::BadRequest, err.as_str());
             }
         }
     }
 
-    if !result_payload.is_empty() {
-        rpc_result.data = Some(result_payload);
-    }
-    rpc_result
+    return new_ok_result(result_payload)
 }
 
 /// 执行单条记录的插入操作
@@ -120,7 +110,7 @@ async fn insert_one(
     database_name: &str,
     schema: &str,
     table: &str,
-    data: &HashMap<String, serde_json::Value>,
+    data: &Map<String, Value>,
 ) -> Result<i64, String> {
     debug!("开始执行单条插入操作: {}.{}.{}.{}", datasource_name, database_name, schema, table);
     debug!("插入数据: {:?}", data);
@@ -155,7 +145,7 @@ async fn insert_one(
     let mut insert_data = data.clone();
     let data_id = get_next_id();
     debug!("生成记录ID: {}", data_id);
-    insert_data.insert("id".to_string(), serde_json::Value::Number(serde_json::Number::from(data_id)));
+    insert_data.insert("id".to_string(), Value::Number(Number::from(data_id)));
 
     // 构建INSERT SQL
     let sql = sql_builder.build_insert(schema, table, &insert_data);

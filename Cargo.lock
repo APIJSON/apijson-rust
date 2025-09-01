@@ -942,6 +942,7 @@ checksum = "f2481980430f9f78649238835720ddccc57e52df14ffce1c6f37391d61b563e9"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.5",
+ "serde",
 ]
 
 [[package]]
@@ -1169,6 +1170,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "fnv",
+ "indexmap",
  "lazy_static",
  "log",
  "regex",
@@ -1607,6 +1609,7 @@ version = "1.0.143"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d401abef1d108fbd9cbaebc3e46611f4b1021f714a0597a71f41ee463f5f4a5a"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "ryu",

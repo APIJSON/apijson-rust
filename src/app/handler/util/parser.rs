@@ -1,6 +1,25 @@
-use std::collections::HashMap;
-use serde_json::Value;
+use serde_json::{Number, Value, Map};
 use log::{debug, info, warn, error};
+use crate::app::common::rpc::HttpCode;
+
+pub const KEY_CODE: &str = "code";
+pub const KEY_MSG: &str = "msg";
+pub const MSG_SUCCESS: &str = "success";
+
+pub fn new_err_result(code: HttpCode, msg: &str) -> Map<String, Value> {
+    let mut result_payload = Map::new();
+    result_payload.insert(String::from(KEY_CODE), Value::Number(Number::from(code as i32)));
+    result_payload.insert(String::from(KEY_MSG), Value::String(String::from(msg)));
+    return result_payload
+}
+
+pub fn new_ok_result(data: Map<String, Value>) -> Map<String, Value> {
+    let mut result_payload = data.clone();
+    result_payload.insert(String::from(KEY_CODE), Value::Number(Number::from(HttpCode::Ok as i32)));
+    result_payload.insert(String::from(KEY_MSG), Value::String(String::from(MSG_SUCCESS)));
+    return result_payload
+}
+
 
 /// 数据库四元素信息
 #[derive(Debug, Clone)]
@@ -21,7 +40,7 @@ pub struct ParsedDataItem {
     /// 数据库目标信息
     pub target: DatabaseTarget,
     /// 清理后的数据（移除了元数据字段）
-    pub data: HashMap<String, Value>,
+    pub data: Map<String, Value>,
 }
 
 /// 解析结果
@@ -44,7 +63,7 @@ impl DatabaseTargetParser {
     /// 
     /// # 返回值
     /// 返回解析结果，包含所有解析后的数据项和错误信息
-    pub fn parse_request_body(body_map: HashMap<String, Value>) -> ParseResult {
+    pub fn parse_request_body(body_map: Map<String, Value>) -> ParseResult {
         info!("开始解析请求体，包含 {} 个表项", body_map.len());
         debug!("请求体内容: {:?}", body_map);
         
@@ -94,28 +113,46 @@ impl DatabaseTargetParser {
         debug!("解析表数据: table_name={}, is_array={}", table_name, is_array);
 
         if is_array {
-            // 处理数组数据
-            debug!("处理数组数据");
-            match param.as_array() {
-                Some(array) => {
-                    debug!("数组包含 {} 个元素", array.len());
-                    for (index, item) in array.iter().enumerate() {
-                        match item.as_object() {
-                            Some(obj) => {
-                                debug!("解析数组第 {} 项", index);
-                                let parsed_item = Self::parse_single_item(table_name, obj.clone(), true)?;
-                                items.push(parsed_item);
-                            }
-                            None => {
-                                error!("数组第{}项不是有效的对象: {:?}", index, item);
-                                return Err(format!("数组第{}项不是有效的对象", index));
+            if param.is_object() {
+                let obj = param.as_object().unwrap();
+                let count_val = obj.get("count");
+                let page_val = obj.get("page");
+
+                let count = if count_val == None {10} else { count_val.unwrap().as_i64().unwrap()};
+                let page = if page_val == None {0} else { page_val.unwrap().as_i64().unwrap()};
+
+                for i in 0..count {
+                    let parsed_item = Self::parse_single_item(table_name, obj.clone(), true)?;
+                    if parsed_item.data.is_empty() {
+                        break
+                    }
+
+                    items.push(parsed_item);
+                }
+            } else {
+                // 处理数组数据
+                debug!("处理数组数据");
+                match param.as_array() {
+                    Some(array) => {
+                        debug!("数组包含 {} 个元素", array.len());
+                        for (index, item) in array.iter().enumerate() {
+                            match item.as_object() {
+                                Some(obj) => {
+                                    debug!("解析数组第 {} 项", index);
+                                    let parsed_item = Self::parse_single_item(table_name, obj.clone(), true)?;
+                                    items.push(parsed_item);
+                                }
+                                None => {
+                                    error!("数组第{}项不是有效的对象: {:?}", index, item);
+                                    return Err(format!("数组第{}项不是有效的对象", index));
+                                }
                             }
                         }
                     }
-                }
-                None => {
-                    error!("期望数组类型，但收到: {:?}", param);
-                    return Err("期望数组类型，但收到其他类型".to_string());
+                    None => {
+                        error!("期望数组类型，但收到: {:?}", param);
+                        return Err("期望数组类型，但收到其他类型".to_string());
+                    }
                 }
             }
         } else {
@@ -152,7 +189,7 @@ impl DatabaseTargetParser {
     ) -> Result<ParsedDataItem, String> {
         debug!("解析单个数据项: table={}, is_array={}", table_name, is_array);
         
-        let mut data = HashMap::new();
+        let mut data = Map::new();
         let mut datasource = None;
         let mut database = None;
         let mut schema = None;
@@ -280,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_parse_single_object() {
-        let mut body_map = HashMap::new();
+        let mut body_map = Map::new();
         body_map.insert(
             "users".to_string(),
             json!({
@@ -306,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_parse_array_data() {
-        let mut body_map = HashMap::new();
+        let mut body_map = Map::new();
         body_map.insert(
             "moment[]".to_string(),
             json!([

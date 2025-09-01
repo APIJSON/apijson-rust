@@ -4,7 +4,7 @@ use sqlx::{
     postgres::{PgColumn, PgPool, PgRow},
     types::Decimal,
 };
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use crate::app::datasource::metadata::{put_db_meta, put_db_tables, put_table_meta};
 use crate::app::datasource::codec::base64_encode;
 use crate::app::datasource::{ColumnMeta, TableMeta};
@@ -254,10 +254,10 @@ impl PgConn {
     /// * `params` - 查询参数列表，用于绑定到 SQL 语句中的占位符
     ///
     /// # 返回值
-    /// * `Ok(Some(HashMap<String, serde_json::Value>))` - 成功查询到记录，返回包含字段名和值的映射
+    /// * `Ok(Some(IndexMap<String, serde_json::Value>))` - 成功查询到记录，返回包含字段名和值的映射
     /// * `Ok(None)` - 没有查询到记录
     /// * `Err(sqlx::Error)` - 查询过程中发生错误
-    pub async fn query_one(&self, sql: &str, params: Vec<String>) -> Result<Option<HashMap<String, serde_json::Value>>, sqlx::Error> {
+    pub async fn query_one(&self, sql: &str, params: Vec<String>) -> Result<Option<IndexMap<String, serde_json::Value>>, sqlx::Error> {
         // 如果 SQL 语句中没有包含 LIMIT，则自动添加 LIMIT 1 以提高查询效率
         let sql = if !sql.to_lowercase().contains("limit") {
             format!("{} LIMIT 1", sql)
@@ -274,13 +274,13 @@ impl PgConn {
         // 执行查询并获取结果
         let row_opt = query.fetch_optional(&self.pool).await?;
 
-        // 如果查询到记录，则将行数据转换为 HashMap
+        // 如果查询到记录，则将行数据转换为 IndexMap
         match row_opt {
             Some(row) => {
                 let columns = row.columns();
-                let mut record = HashMap::with_capacity(columns.len());
+                let mut record = IndexMap::with_capacity(columns.len());
                 
-                // 遍历所有列，将列名和对应的值插入到 HashMap 中
+                // 遍历所有列，将列名和对应的值插入到 IndexMap 中
                 for column in columns {
                     let value = Self::get_column_val(&row, column);
                     record.insert(column.name().to_string(), value);
@@ -301,9 +301,9 @@ impl PgConn {
     /// * `params` - 查询参数列表，用于绑定到 SQL 语句中的占位符
     ///
     /// # 返回值
-    /// * `Ok(Vec<HashMap<String, serde_json::Value>>)` - 成功查询到的记录列表，每条记录为字段名和值的映射
+    /// * `Ok(Vec<IndexMap<String, serde_json::Value>>)` - 成功查询到的记录列表，每条记录为字段名和值的映射
     /// * `Err(sqlx::Error)` - 查询过程中发生错误
-    pub async fn query_list(&self, sql: &str, params: Vec<String>) -> Result<Vec<HashMap<String, serde_json::Value>>, sqlx::Error> {
+    pub async fn query_list(&self, sql: &str, params: Vec<String>) -> Result<Vec<IndexMap<String, serde_json::Value>>, sqlx::Error> {
         // 构建查询并绑定参数
         let mut query = sqlx::query(sql);
         for param in params {
@@ -316,12 +316,12 @@ impl PgConn {
         // 预分配容量的结果向量
         let mut results = Vec::with_capacity(rows.len());
 
-        // 遍历每一行，将行数据转换为 HashMap 并添加到结果中
+        // 遍历每一行，将行数据转换为 IndexMap 并添加到结果中
         for row in rows.into_iter() {
             let columns = row.columns();
-            let mut record = HashMap::with_capacity(columns.len());
+            let mut record = IndexMap::with_capacity(columns.len());
             
-            // 遍历所有列，将列名和对应的值插入到 HashMap 中
+            // 遍历所有列，将列名和对应的值插入到 IndexMap 中
             for column in columns {
                 let value = Self::get_column_val(&row, column);
                 record.insert(column.name().to_string(), value);

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 /// 将一个平铺了 "a/b/c" 风格键的 JSON 对象，转换为嵌套版本
-pub fn transform_salve_value(input_map: HashMap<String, serde_json::Value>) -> HashMap<String, serde_json::Value> {
-    let mut result_map = HashMap::new();
+pub fn transform_salve_value(input_map: IndexMap<String, serde_json::Value>) -> IndexMap<String, serde_json::Value> {
+    let mut result_map = IndexMap::new();
     
     for (raw_key, value) in input_map {
         // 拆分路径
@@ -65,7 +65,7 @@ fn build_nested_object(segments: &[&str], value: serde_json::Value) -> serde_jso
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use indexmap::IndexMap;
     use crate::app::handler::util::transform::transform_salve_value;
 
     #[test]
@@ -95,7 +95,7 @@ mod tests {
         for (i, src) in test_cases.iter().enumerate() {
             println!("测试用例 {}", i + 1);
             let v: serde_json::Value = serde_json::from_str(src).unwrap();
-            let input_map: HashMap<String, serde_json::Value> = v.as_object()
+            let input_map: IndexMap<String, serde_json::Value> = v.as_object()
                 .unwrap()
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))

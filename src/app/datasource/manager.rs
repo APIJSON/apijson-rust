@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 use crate::app::datasource::config::{DataSourceKind, DataSourcesConfig};
 use crate::app::datasource::mysql::DBConn;
@@ -15,7 +15,7 @@ pub enum DatabaseConnection {
 
 impl DatabaseConnection {
     /// 查询单条记录
-    pub async fn query_one(&self, sql: &str, params: Vec<String>) -> Result<Option<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn query_one(&self, sql: &str, params: Vec<String>) -> Result<Option<IndexMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             DatabaseConnection::Mysql(conn) => {
                 conn.query_one(sql, params).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -27,7 +27,7 @@ impl DatabaseConnection {
     }
 
     /// 查询多条记录
-    pub async fn query_list(&self, sql: &str, params: Vec<String>) -> Result<Vec<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn query_list(&self, sql: &str, params: Vec<String>) -> Result<Vec<IndexMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
         match self {
             DatabaseConnection::Mysql(conn) => {
                 conn.query_list(sql, params).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -64,7 +64,7 @@ impl DatabaseConnection {
 }
 
 /// 数据源管理器
-/// 
+///
 /// 负责管理多个数据源的连接，提供统一的数据库操作接口
 #[derive(Debug, Clone)]
 pub struct DataSourceManager {
@@ -73,45 +73,45 @@ pub struct DataSourceManager {
     /// 数据源名称到连接的映射
     /// Key: 数据源名称
     /// Value: 数据库名称到连接的映射
-    connections: Arc<std::sync::RwLock<HashMap<String, HashMap<String, DatabaseConnection>>>>,
+    connections: Arc<std::sync::RwLock<IndexMap<String, IndexMap<String, DatabaseConnection>>>>,
     /// 默认数据源名称
     default_datasource: Option<String>,
 }
 
 impl DataSourceManager {
     /// 创建新的数据源管理器
-    /// 
+    ///
     /// # 参数
     /// * `config` - 数据源配置
-    /// 
+    ///
     /// # 返回值
     /// 返回数据源管理器实例
     pub fn new(config: DataSourcesConfig) -> Self {
         let default_datasource = config.get_default_datasource().map(|ds| ds.name.clone());
-        
+
         Self {
             config,
-            connections: Arc::new(std::sync::RwLock::new(HashMap::new())),
+            connections: Arc::new(std::sync::RwLock::new(IndexMap::new())),
             default_datasource,
         }
     }
 
     /// 初始化所有数据源连接
-    /// 
+    ///
     /// 遍历配置中的所有数据源，为每个数据源的每个数据库建立连接
-    /// 
+    ///
     /// # 返回值
     /// * `Ok(())` - 初始化成功
     /// * `Err(Box<dyn std::error::Error + Send + Sync>)` - 初始化失败
     pub async fn initialize(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut connections = self.connections.write().unwrap();
-        
+
         for datasource in &self.config.datasource {
-            let mut ds_connections = HashMap::new();
-            
+            let mut ds_connections = IndexMap::new();
+
             for database in &datasource.database {
                 let connection_url = datasource.build_connection_url(database);
-                
+
                 let db_connection = match datasource.kind {
                     DataSourceKind::Mysql => {
                         let conn = DBConn::new(&connection_url).await
@@ -124,24 +124,24 @@ impl DataSourceManager {
                         DatabaseConnection::Postgres(conn)
                     }
                 };
-                
+
                 ds_connections.insert(database.clone(), db_connection);
                 log::info!("Connected to database: {} in datasource: {}", database, datasource.name);
             }
-            
+
             connections.insert(datasource.name.clone(), ds_connections);
             log::info!("Datasource {} initialized with {} databases", datasource.name, datasource.database.len());
         }
-        
+
         Ok(())
     }
 
     /// 获取指定数据源和数据库的连接
-    /// 
+    ///
     /// # 参数
     /// * `datasource_name` - 数据源名称
     /// * `database_name` - 数据库名称
-    /// 
+    ///
     /// # 返回值
     /// 返回数据库连接的克隆
     pub fn get_connection(&self, datasource_name: &str, database_name: &str) -> Option<DatabaseConnection> {
@@ -152,10 +152,10 @@ impl DataSourceManager {
     }
 
     /// 获取默认数据源的指定数据库连接
-    /// 
+    ///
     /// # 参数
     /// * `database_name` - 数据库名称
-    /// 
+    ///
     /// # 返回值
     /// 返回默认数据源中指定数据库的连接
     pub fn get_default_connection(&self, database_name: &str) -> Option<DatabaseConnection> {
@@ -167,7 +167,7 @@ impl DataSourceManager {
     }
 
     /// 获取所有数据源名称
-    /// 
+    ///
     /// # 返回值
     /// 返回所有数据源名称的向量
     pub fn get_datasource_names(&self) -> Vec<String> {
@@ -175,10 +175,10 @@ impl DataSourceManager {
     }
 
     /// 获取指定数据源的所有数据库名称
-    /// 
+    ///
     /// # 参数
     /// * `datasource_name` - 数据源名称
-    /// 
+    ///
     /// # 返回值
     /// 返回指定数据源的所有数据库名称
     pub fn get_database_names(&self, datasource_name: &str) -> Vec<String> {
@@ -190,23 +190,23 @@ impl DataSourceManager {
     }
 
     /// 获取所有数据源和数据库的映射
-    /// 
+    ///
     /// # 返回值
     /// 返回数据源名称到数据库名称列表的映射
-    pub fn get_all_datasource_databases(&self) -> HashMap<String, Vec<String>> {
+    pub fn get_all_datasource_databases(&self) -> IndexMap<String, Vec<String>> {
         self.config.datasource.iter()
             .map(|ds| (ds.name.clone(), ds.database.clone()))
             .collect()
     }
 
     /// 根据数据源名称和数据库名称查询单条记录
-    /// 
+    ///
     /// # 参数
     /// * `datasource_name` - 数据源名称
     /// * `database_name` - 数据库名称
     /// * `sql` - SQL 查询语句
     /// * `params` - 查询参数
-    /// 
+    ///
     /// # 返回值
     /// 返回查询结果
     pub async fn query_one(
@@ -215,7 +215,7 @@ impl DataSourceManager {
         database_name: &str,
         sql: &str,
         params: Vec<String>,
-    ) -> Result<Option<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<IndexMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(connection) = self.get_connection(datasource_name, database_name) {
             connection.query_one(sql, params).await
         } else {
@@ -224,13 +224,13 @@ impl DataSourceManager {
     }
 
     /// 根据数据源名称和数据库名称查询多条记录
-    /// 
+    ///
     /// # 参数
     /// * `datasource_name` - 数据源名称
     /// * `database_name` - 数据库名称
     /// * `sql` - SQL 查询语句
     /// * `params` - 查询参数
-    /// 
+    ///
     /// # 返回值
     /// 返回查询结果列表
     pub async fn query_list(
@@ -239,7 +239,7 @@ impl DataSourceManager {
         database_name: &str,
         sql: &str,
         params: Vec<String>,
-    ) -> Result<Vec<HashMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<IndexMap<String, serde_json::Value>>, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(connection) = self.get_connection(datasource_name, database_name) {
             connection.query_list(sql, params).await
         } else {

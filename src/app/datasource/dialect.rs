@@ -1,5 +1,5 @@
 use crate::app::datasource::config::DataSourceKind;
-use std::collections::HashMap;
+use serde_json::{Value, Map};
 
 /// SQL方言特性
 pub trait SqlDialect: Send + Sync {
@@ -48,10 +48,10 @@ pub trait SqlDialect: Send + Sync {
     fn escape_string_value(&self, value: &str) -> String;
 
     /// 格式化值（根据类型）
-    fn format_value(&self, value: &serde_json::Value) -> String;
+    fn format_value(&self, value: &Value) -> String;
 
     /// 构建WHERE子句
-    fn build_wheres(&self, conditions: &HashMap<String, serde_json::Value>) -> String;
+    fn build_wheres(&self, conditions: &Map<String, Value>) -> String;
 
     /// 构建SELECT字段列表，支持字段选择和别名
     /// 
@@ -68,7 +68,7 @@ pub struct MySqlDialect;
 
 impl MySqlDialect {
     /// 解析单个条件
-    fn parse_condition(&self, key: &str, value: &serde_json::Value) -> String {
+    fn parse_condition(&self, key: &str, value: &Value) -> String {
         // 解析逻辑运算符
         let (field_name, logic_op, operator) = self.parse_key(key);
         
@@ -76,8 +76,8 @@ impl MySqlDialect {
             "{}" => {
                 // 对于{}操作符，需要判断值的类型来决定是IN条件还是范围条件
                 match value {
-                    serde_json::Value::Array(_) => self.build_in_condition(&field_name, value, &logic_op),
-                    serde_json::Value::String(s) if s.contains(',') && (s.contains('<') || s.contains('>') || s.contains('=')) => {
+                    Value::Array(_) => self.build_in_condition(&field_name, value, &logic_op),
+                    Value::String(s) if s.contains(',') && (s.contains('<') || s.contains('>') || s.contains('=')) => {
                         self.build_range_condition(&field_name, value, &logic_op)
                     },
                     _ => self.build_in_condition(&field_name, value, &logic_op),
@@ -130,11 +130,11 @@ impl MySqlDialect {
     }
     
     /// 构建IN条件
-    fn build_in_condition(&self, field: &str, value: &serde_json::Value, logic_op: &str) -> String {
+    fn build_in_condition(&self, field: &str, value: &Value, logic_op: &str) -> String {
         let escaped_field = self.escape_identifier(field);
         
         match value {
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 let values: Vec<String> = arr.iter().map(|v| self.format_value(v)).collect();
                 let condition = format!("{} IN ({})", escaped_field, values.join(","));
                 if logic_op == "!" {
@@ -155,20 +155,20 @@ impl MySqlDialect {
     }
     
     /// 构建包含条件（JSON_CONTAINS）
-    fn build_contains_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_contains_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         let formatted_value = self.format_value(value);
         format!("JSON_CONTAINS({}, {})", escaped_field, formatted_value)
     }
     
     /// 构建LIKE条件
-    fn build_like_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_like_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 format!("{} LIKE {}", escaped_field, self.escape_string_value(s))
             },
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 let conditions: Vec<String> = arr.iter()
                     .filter_map(|v| v.as_str())
                     .map(|s| format!("{} LIKE {}", escaped_field, self.escape_string_value(s)))
@@ -184,13 +184,13 @@ impl MySqlDialect {
     }
     
     /// 构建正则表达式条件
-    fn build_regexp_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_regexp_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 format!("{} REGEXP {}", escaped_field, self.escape_string_value(s))
             },
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 let conditions: Vec<String> = arr.iter()
                     .filter_map(|v| v.as_str())
                     .map(|s| format!("{} REGEXP {}", escaped_field, self.escape_string_value(s)))
@@ -206,10 +206,10 @@ impl MySqlDialect {
     }
     
     /// 构建BETWEEN条件
-    fn build_between_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_between_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 let parts: Vec<&str> = s.split(',').collect();
                 if parts.len() == 2 {
                     let start = self.escape_string_value(parts[0].trim());
@@ -219,7 +219,7 @@ impl MySqlDialect {
                     "1=1".to_string()
                 }
             },
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 if arr.len() == 2 {
                     let start = self.format_value(&arr[0]);
                     let end = self.format_value(&arr[1]);
@@ -233,11 +233,11 @@ impl MySqlDialect {
     }
     
     /// 构建范围条件
-    fn build_range_condition(&self, field: &str, value: &serde_json::Value, logic_op: &str) -> String {
+    fn build_range_condition(&self, field: &str, value: &Value, logic_op: &str) -> String {
         let escaped_field = self.escape_identifier(field);
         
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 let conditions: Vec<String> = s.split(',')
                     .map(|condition| {
                         let condition = condition.trim();
@@ -261,7 +261,7 @@ impl MySqlDialect {
                 let joiner = if logic_op == "&" { " AND " } else { " OR " };
                 format!("({})", conditions.join(joiner))
             },
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 let conditions: Vec<String> = arr.iter()
                     .filter_map(|v| v.as_str())
                     .map(|condition| {
@@ -392,17 +392,17 @@ impl SqlDialect for MySqlDialect {
         format!("'{}'", value.replace("'", "''").replace("\\", "\\\\"))
     }
 
-    fn format_value(&self, value: &serde_json::Value) -> String {
+    fn format_value(&self, value: &Value) -> String {
         match value {
-            serde_json::Value::Null => "NULL".to_string(),
-            serde_json::Value::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::String(s) => self.escape_string_value(s),
+            Value::Null => "NULL".to_string(),
+            Value::Bool(b) => if *b { "TRUE" } else { "FALSE" }.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::String(s) => self.escape_string_value(s),
             _ => self.escape_string_value(&value.to_string()),
         }
     }
 
-    fn build_wheres(&self, conditions: &HashMap<String, serde_json::Value>) -> String {
+    fn build_wheres(&self, conditions: &Map<String, Value>) -> String {
         let mut where_clauses = Vec::new();
         
         for (key, value) in conditions {
@@ -454,7 +454,7 @@ pub struct PostgreSqlDialect;
 
 impl PostgreSqlDialect {
     /// 解析单个条件
-    fn parse_condition(&self, key: &str, value: &serde_json::Value) -> String {
+    fn parse_condition(&self, key: &str, value: &Value) -> String {
         // 解析逻辑运算符
         let (field_name, logic_op, operator) = self.parse_key(key);
         
@@ -462,8 +462,8 @@ impl PostgreSqlDialect {
             "{}" => {
                 // 对于{}操作符，需要判断值的类型来决定是IN条件还是范围条件
                 match value {
-                    serde_json::Value::Array(_) => self.build_in_condition(&field_name, value, &logic_op),
-                    serde_json::Value::String(s) if s.contains(',') && (s.contains('<') || s.contains('>') || s.contains('=')) => {
+                    Value::Array(_) => self.build_in_condition(&field_name, value, &logic_op),
+                    Value::String(s) if s.contains(',') && (s.contains('<') || s.contains('>') || s.contains('=')) => {
                         self.build_range_condition(&field_name, value, &logic_op)
                     },
                     _ => self.build_in_condition(&field_name, value, &logic_op),
@@ -516,11 +516,11 @@ impl PostgreSqlDialect {
     }
     
     /// 构建IN条件
-    fn build_in_condition(&self, field: &str, value: &serde_json::Value, logic_op: &str) -> String {
+    fn build_in_condition(&self, field: &str, value: &Value, logic_op: &str) -> String {
         let escaped_field = self.escape_identifier(field);
         
         match value {
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 let values: Vec<String> = arr.iter().map(|v| self.format_value(v)).collect();
                 let condition = format!("{} IN ({})", escaped_field, values.join(","));
                 if logic_op == "!" {
@@ -541,20 +541,20 @@ impl PostgreSqlDialect {
     }
     
     /// 构建包含条件（PostgreSQL使用@>操作符）
-    fn build_contains_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_contains_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         let formatted_value = self.format_value(value);
         format!("{} @> {}", escaped_field, formatted_value)
     }
     
     /// 构建LIKE条件
-    fn build_like_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_like_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 format!("{} LIKE {}", escaped_field, self.escape_string_value(s))
             },
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 let conditions: Vec<String> = arr.iter()
                     .filter_map(|v| v.as_str())
                     .map(|s| format!("{} LIKE {}", escaped_field, self.escape_string_value(s)))
@@ -570,13 +570,13 @@ impl PostgreSqlDialect {
     }
     
     /// 构建正则表达式条件（PostgreSQL使用~操作符）
-    fn build_regexp_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_regexp_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 format!("{} ~ {}", escaped_field, self.escape_string_value(s))
             },
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 let conditions: Vec<String> = arr.iter()
                     .filter_map(|v| v.as_str())
                     .map(|s| format!("{} ~ {}", escaped_field, self.escape_string_value(s)))
@@ -592,10 +592,10 @@ impl PostgreSqlDialect {
     }
     
     /// 构建BETWEEN条件
-    fn build_between_condition(&self, field: &str, value: &serde_json::Value) -> String {
+    fn build_between_condition(&self, field: &str, value: &Value) -> String {
         let escaped_field = self.escape_identifier(field);
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 let parts: Vec<&str> = s.split(',').collect();
                 if parts.len() == 2 {
                     let start = self.escape_string_value(parts[0].trim());
@@ -605,7 +605,7 @@ impl PostgreSqlDialect {
                     "1=1".to_string()
                 }
             },
-            serde_json::Value::Array(arr) => {
+            Value::Array(arr) => {
                 if arr.len() == 2 {
                     let start = self.format_value(&arr[0]);
                     let end = self.format_value(&arr[1]);
@@ -619,11 +619,11 @@ impl PostgreSqlDialect {
     }
     
     /// 构建范围条件
-    fn build_range_condition(&self, field: &str, value: &serde_json::Value, logic_op: &str) -> String {
+    fn build_range_condition(&self, field: &str, value: &Value, logic_op: &str) -> String {
         let escaped_field = self.escape_identifier(field);
         
         match value {
-            serde_json::Value::String(s) => {
+            Value::String(s) => {
                 let conditions: Vec<String> = s.split(',')
                     .map(|condition| {
                         let condition = condition.trim();
@@ -762,17 +762,17 @@ impl SqlDialect for PostgreSqlDialect {
         format!("'{}'", value.replace("'", "''"))
     }
 
-    fn format_value(&self, value: &serde_json::Value) -> String {
+    fn format_value(&self, value: &Value) -> String {
         match value {
-            serde_json::Value::Null => "NULL".to_string(),
-            serde_json::Value::Bool(b) => if *b { "true" } else { "false" }.to_string(),
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::String(s) => self.escape_string_value(s),
+            Value::Null => "NULL".to_string(),
+            Value::Bool(b) => if *b { "true" } else { "false" }.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::String(s) => self.escape_string_value(s),
             _ => self.escape_string_value(&value.to_string()),
         }
     }
 
-    fn build_wheres(&self, conditions: &HashMap<String, serde_json::Value>) -> String {
+    fn build_wheres(&self, conditions: &Map<String, Value>) -> String {
         let mut where_clauses = Vec::new();
         
         for (key, value) in conditions {
@@ -850,7 +850,7 @@ impl SqlBuilder {
         &self,
         schema: &str,
         table: &str,
-        data: &HashMap<String, serde_json::Value>,
+        data: &Map<String, Value>,
     ) -> String {
         let fields: Vec<String> = data.keys().cloned().collect();
         let values: Vec<String> = data.values().map(|v| self.dialect.format_value(v)).collect();
@@ -863,7 +863,7 @@ impl SqlBuilder {
         &self,
         schema: &str,
         table: &str,
-        data: &HashMap<String, serde_json::Value>,
+        data: &Map<String, Value>,
         id: i64,
     ) -> String {
         let set_clauses: Vec<String> = data
@@ -935,7 +935,7 @@ impl SqlBuilder {
     /// 构建复杂WHERE条件
     pub fn build_where_conditions(
         &self,
-        conditions: &HashMap<String, serde_json::Value>,
+        conditions: &Map<String, Value>,
     ) -> String {
         self.dialect.build_wheres(conditions)
     }
@@ -946,7 +946,7 @@ impl SqlBuilder {
         schema: &str,
         table: &str,
         fields: Option<&[String]>,
-        conditions: &HashMap<String, serde_json::Value>,
+        conditions: &Map<String, Value>,
         order_by: Option<&str>,
         limit: Option<u64>,
         offset: Option<u64>,

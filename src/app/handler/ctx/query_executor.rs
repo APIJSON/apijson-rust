@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
+use std::ptr::null;
 use crate::app::datasource::mysql::DBConn;
 use crate::app::datasource::metadata::get_table;
 use crate::app::handler::ctx::dialect::{SqlDialect, MySqlDialect, PostgreSqlDialect};
@@ -59,7 +60,7 @@ impl QueryExecutor {
     }
 
     #[allow(dead_code)]
-    pub async fn exec(&self, db: &DBConn) -> Result<Vec<HashMap<String, serde_json::Value>>, sqlx::Error> {
+    pub async fn exec(&self, db: &DBConn) -> Result<Vec<IndexMap<String, serde_json::Value>>, sqlx::Error> {
         let sql = self.to_sql();
         log::info!("sql.exec: {}, params: {}", sql, serde_json::to_string(&self.params).unwrap());
         let params: Vec<String> = self.params.iter()
@@ -87,9 +88,14 @@ impl QueryExecutor {
         }
         
         // FROM子句
-        let escaped_schema = dialect.escape_identifier(&self.schema);
+
         let escaped_table = dialect.escape_identifier(&self.table);
-        sql.push_str(&format!(" FROM {}.{}", escaped_schema, escaped_table));
+        if (self.schema.is_empty()) { // FIXME 必须有 schema，否则查询总是为空
+            sql.push_str(&format!(" FROM {}", escaped_table));
+        } else {
+            let escaped_schema = dialect.escape_identifier(&self.schema);
+            sql.push_str(&format!(" FROM {}.{}", escaped_schema, escaped_table));
+        }
         
         // WHERE子句
         if !self.where_clauses.is_empty() {
@@ -111,19 +117,25 @@ impl QueryExecutor {
         sql
     }
     
-    pub fn parse_table(&mut self, table_key: &str) -> Result<(), String> {
+    pub fn parse_table(&mut self, table_key: &str) -> Result<String, String> {
         let table_key = if table_key.ends_with("[]") { &table_key[..table_key.len()-2] } else { table_key };
-        let schema_table_vec = table_key.split(".").collect::<Vec<&str>>();
-        let schema = schema_table_vec[0];
-        let table = schema_table_vec[1];
-        match get_table(&schema, table) {
-            Some(table) => {
-                self.table = table.name.clone();
-                self.schema = table.schema.clone();
-                Ok(())
-            },
-            None => Err(format!("table: {} not exists", table_key))
+        let keys = table_key.split("-").collect::<Vec<&str>>();
+        let l = keys.len();
+        let table = if l < 1 {""} else {keys[0]};
+        // match get_table(&schema, table) {
+        //     Some(table) => {
+        //         self.table = table.name.clone();
+        //         self.schema = table.schema.clone();
+        //         Ok(())
+        //     },
+        //     None => Err(format!("table: {} not exists", table_key))
+        // }
+        if (table.is_empty()) {
+            Err(format!("Table is empty"))?
         }
+        self.table = table.to_string().clone();
+        self.schema = "sys".to_string();
+        Ok(table.to_string())
     }
 
     pub fn parse_condition(&mut self, field: &str, value: &serde_json::Value) {
