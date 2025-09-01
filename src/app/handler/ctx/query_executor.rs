@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
 use std::ptr::null;
+use serde_json::Value;
 use crate::app::datasource::mysql::DBConn;
 use crate::app::datasource::metadata::get_table;
 use crate::app::handler::ctx::dialect::{SqlDialect, MySqlDialect, PostgreSqlDialect};
@@ -13,7 +14,9 @@ pub struct QueryExecutor {
     table: String,
     columns: Vec<String>,
     where_clauses: Vec<String>,
-    params: Vec<serde_json::Value>,
+    params: Vec<Value>,
+    group: Option<String>,
+    having: Option<String>,
     order: Option<String>,
     page: i32,
     limit: i32,
@@ -28,6 +31,8 @@ impl QueryExecutor {
             columns: vec![],
             where_clauses: vec![],
             params: vec![],
+            group: None,
+            having: None,
             order: None,
             page: 0,
             limit: 1,
@@ -43,31 +48,31 @@ impl QueryExecutor {
     }
     
     #[allow(dead_code)]
-    pub fn get_params(&self) -> Vec<serde_json::Value> {
+    pub fn get_params(&self) -> Vec<Value> {
         self.params.clone()
     }
     
     pub fn get_string_params(&self) -> Vec<String> {
         self.params.iter().map(|v| {
             match v {
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Number(n) => n.to_string(),
-                serde_json::Value::Bool(b) => b.to_string(),
-                serde_json::Value::Null => "NULL".to_string(),
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                Value::Null => "NULL".to_string(),
                 _ => v.to_string(),
             }
         }).collect()
     }
 
     #[allow(dead_code)]
-    pub async fn exec(&self, db: &DBConn) -> Result<Vec<IndexMap<String, serde_json::Value>>, sqlx::Error> {
+    pub async fn exec(&self, db: &DBConn) -> Result<Vec<IndexMap<String, Value>>, sqlx::Error> {
         let sql = self.to_sql();
         log::info!("sql.exec: {}, params: {}", sql, serde_json::to_string(&self.params).unwrap());
         let params: Vec<String> = self.params.iter()
             .map(|v| match v {
-                serde_json::Value::Null => "NULL".to_string(),
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Array(_) | serde_json::Value::Object(_) =>
+                Value::Null => "NULL".to_string(),
+                Value::String(s) => s.clone(),
+                Value::Array(_) | Value::Object(_) =>
                     serde_json::to_string(v).unwrap_or_else(|_| "NULL".to_string()),
                 _ => v.to_string(),
             })
@@ -138,21 +143,31 @@ impl QueryExecutor {
         Ok(table.to_string())
     }
 
-    pub fn parse_condition(&mut self, field: &str, value: &serde_json::Value) {
+    pub fn parse_condition(&mut self, field: &str, value: &Value) {
         // 处理特殊参数
         if field.starts_with('@') {
             match &field[1..] {
-                "order" => {
-                    if let serde_json::Value::String(order) = value {
-                        self.order = Some(order.to_string());
-                    }
-                }
                 "column" => {
-                    if let serde_json::Value::String(cols) = value {
+                    if let Value::String(cols) = value {
                         // 使用dialect的build_columns方法处理字段选择和别名
                         let dialect = self.get_dialect();
-                        let columns = dialect.build_columns(cols);
+                        let columns = dialect.build_columns(cols.replace(";", ", ").as_str());
                         self.columns = columns;
+                    }
+                }
+                "group" => {
+                    if let Value::String(group) = value {
+                        self.group = Some(group.to_string());
+                    }
+                }
+                "having" => {
+                    if let Value::String(having) = value {
+                        self.having = Some(having.to_string().replace(";", ", "));
+                    }
+                }
+                "order" => {
+                    if let Value::String(order) = value {
+                        self.order = Some(order.to_string().replace("+", " ASC ").replace("-", " DESC "));
                     }
                 }
                 _ => {}
@@ -160,22 +175,22 @@ impl QueryExecutor {
             return;
         }
         
-        // 处理各种查询条件
+        // 处理各种查询条件 https://github.com/Tencent/APIJSON/blob/master/Document.md#3.2
         if field.ends_with('$') {
-            // 模糊查询
+            // 模糊搜索 https://github.com/Tencent/APIJSON/blob/master/APIJSONORM/src/main/java/apijson/orm/AbstractSQLConfig.java#L4114-L4232
             let actual_field = &field[..field.len() - 1];
             let dialect = self.get_dialect();
             let escaped_field = dialect.escape_identifier(actual_field);
             self.where_clauses.push(format!("{} LIKE ?", escaped_field));
             self.params.push(value.to_owned());
-        } else if field.ends_with('?') {
-             // 正则匹配
+        } else if field.ends_with('~') {
+             // 正则匹配 https://github.com/Tencent/APIJSON/blob/master/APIJSONORM/src/main/java/apijson/orm/AbstractSQLConfig.java#L4236-L4323
              let actual_field = &field[..field.len() - 1];
              let dialect = self.get_dialect();
              let escaped_field = dialect.escape_identifier(actual_field);
-             let regex_op = match self.dialect {
-                 DataSourceKind::Mysql => "REGEXP",
-                 DataSourceKind::Postgres => "~",
+             let regex_op = match self.dialect { // FIXME 根据不同数据库类型及版本来适配，MySQL 8.0+ 用 regexp_like()
+                 DataSourceKind::Mysql => if field.ends_with("*~") { "REGEXP" } else { "REGEXP BINARY" },
+                 DataSourceKind::Postgres => if field.ends_with("*~") { "*~" } else {  "~" },
              };
              self.where_clauses.push(format!("{} {} ?", escaped_field, regex_op));
              self.params.push(value.to_owned());
@@ -185,7 +200,7 @@ impl QueryExecutor {
             let dialect = self.get_dialect();
             let escaped_field = dialect.escape_identifier(actual_field);
             match value {
-                serde_json::Value::Array(values) => {
+                Value::Array(values) => {
                     if !values.is_empty() {
                         let placeholders = vec!["?"; values.len()].join(",");
                         self.where_clauses.push(format!("{} IN ({})", escaped_field, placeholders));
@@ -197,16 +212,26 @@ impl QueryExecutor {
                     self.params.push(value.to_owned());
                 }
             }
+        } else if field.ends_with("%") {
+            let actual_field = &field[..field.len() - 2];
+            let dialect = self.get_dialect();
+            let escaped_field = dialect.escape_identifier(actual_field);
+            self.where_clauses.push(format!("{} BETWEEN ? AND ?", escaped_field));
+
+            let vals = value.as_str().unwrap().split(',').collect::<Vec<&str>>();
+            assert_eq!(vals.len(), 2);
+            self.params.push(Value::from(vals[0]));
+            self.params.push(Value::from(vals[1]));
         } else if field.ends_with("<>") {
-            // NOT IN查询
+            // json contains 查询 https://github.com/Tencent/APIJSON/blob/master/APIJSONORM/src/main/java/apijson/orm/AbstractSQLConfig.java#L4561-L4656
             let actual_field = &field[..field.len() - 2];
             let dialect = self.get_dialect();
             let escaped_field = dialect.escape_identifier(actual_field);
             match value {
-                serde_json::Value::Array(values) => {
+                Value::Array(values) => {
                     if !values.is_empty() {
-                        let placeholders = vec!["?"; values.len()].join(",");
-                        self.where_clauses.push(format!("{} NOT IN ({})", escaped_field, placeholders));
+                        let placeholders = vec!["?"; values.len()].join(","); // FIXME 根据不同数据库类型及版本来适配
+                        self.where_clauses.push(format!("json_contains({}, {}, '$')", escaped_field, placeholders));
                         self.params.extend(values.to_owned());
                     }
                 }
@@ -215,17 +240,48 @@ impl QueryExecutor {
                     self.params.push(value.to_owned());
                 }
             }
+        } else if field.ends_with(">=") {
+            let actual_field = &field[..field.len() - 2];
+            let dialect = self.get_dialect();
+            let escaped_field = dialect.escape_identifier(actual_field);
+            self.where_clauses.push(format!("{} >= ?", escaped_field));
+            self.params.push(value.to_owned());
+        } else if field.ends_with("<=") {
+            let actual_field = &field[..field.len() - 2];
+            let dialect = self.get_dialect();
+            let escaped_field = dialect.escape_identifier(actual_field);
+            self.where_clauses.push(format!("{} <= ?", escaped_field));
+            self.params.push(value.to_owned());
+        } else if field.ends_with(">") {
+            let actual_field = &field[..field.len() - 1];
+            let dialect = self.get_dialect();
+            let escaped_field = dialect.escape_identifier(actual_field);
+            self.where_clauses.push(format!("{} > ?", escaped_field));
+            self.params.push(value.to_owned());
+        } else if field.ends_with("<") {
+            let actual_field = &field[..field.len() - 1];
+            let dialect = self.get_dialect();
+            let escaped_field = dialect.escape_identifier(actual_field);
+            self.where_clauses.push(format!("{} < ?", escaped_field));
+            self.params.push(value.to_owned());
+        } else if field.ends_with("!") {
+            let actual_field = &field[..field.len() - 1];
+            let dialect = self.get_dialect();
+            let escaped_field = dialect.escape_identifier(actual_field);
+            self.where_clauses.push(format!("{} != ?", escaped_field));
+            self.params.push(value.to_owned());
         } else {
             // 普通等值查询
             let dialect = self.get_dialect();
             let escaped_field = dialect.escape_identifier(field);
             match value {
-                serde_json::Value::Array(values) => {
-                    if !values.is_empty() {
-                        let placeholders = vec!["?"; values.len()].join(",");
-                        self.where_clauses.push(format!("{} IN ({})", escaped_field, placeholders));
-                        self.params.extend(values.to_owned());
-                    }
+                Value::Object(values) => {
+                    assert!(false, "还未实现子查询！！！！！");
+                    // if !values.is_empty() {
+                    //     let placeholders = vec!["?"; values.len()].join(",");
+                    //     self.where_clauses.push(format!("{} IN ({})", escaped_field, placeholders));
+                    //     self.params.extend(values.to_owned());
+                    // }
                 }
                 _ => {
                     self.where_clauses.push(format!("{} = ?", escaped_field));
@@ -235,14 +291,14 @@ impl QueryExecutor {
         }
     }
 
-    pub fn page_size(&mut self, page: serde_json::Value, count: serde_json::Value) {
+    pub fn page_size(&mut self, page: Value, count: Value) {
         self.page = Self::parse_num(&page, 0);
         self.limit = Self::parse_num(&count, 10);
     }
 
-    fn parse_num(value: &serde_json::Value, default_val: i32) -> i32 {
+    fn parse_num(value: &Value, default_val: i32) -> i32 {
         match value {
-            serde_json::Value::Number(n) => n.as_f64()
+            Value::Number(n) => n.as_f64()
                 .map(|f| f as i32)
                 .unwrap_or(default_val),
             _ => default_val,
