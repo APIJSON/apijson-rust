@@ -1,3 +1,4 @@
+use std::ptr::null;
 use serde_json::{Number, Value, Map, json, to_value};
 use indexmap::IndexMap;
 use crate::app::common::rpc::{HttpCode};
@@ -54,13 +55,12 @@ impl QueryContext {
         for nodes in query_node.values() {
             // 按权重降序排序
             let mut sorted_nodes = nodes.clone();
-            sorted_nodes.sort_unstable_by(|a, b| b.weight.cmp(&a.weight));
             for node in sorted_nodes {
                 let mut node_owned = (*node).clone();
                 // if node_owned.weight >= RATIO_PRIMARY {
-                    self.query_primary_node(&mut node_owned, manager).await;
+                //     self.query_primary_node(&mut node_owned, manager).await;
                 // } else {
-                //     self.query_relate_node(&mut node_owned, manager).await;
+                    self.query_relate_node(&mut node_owned, manager).await;
                 // }
             }
         }
@@ -110,14 +110,14 @@ impl QueryContext {
         let mut result_map = IndexMap::<String, Value>::new();
 
         // 主节点数据
-        result_map.insert(primary_node_name.to_string(), to_value(primary_node_data.clone()).unwrap());
+        result_map.insert(primary_node_name.to_string(), to_value(primary_node_data.clone()).unwrap_or_default());
 
         // 从节点数据
         for (primary_field, slave_node_field_path) in primary_relate_kv {
             // 获取主节点中关联字段的值，用于查询从节点数据
-            let primary_field_value = primary_node_data.get(primary_field).unwrap();
+            let primary_field_value = primary_node_data.get(primary_field).unwrap_or_default();
             // 从路径中提取从节点字段名称（取最后一个斜杠后的部分）
-            let slave_node_field = slave_node_field_path.split("/").last().unwrap();
+            let slave_node_field = slave_node_field_path.split("/").last().unwrap_or_default();
             // 构建从节点字段值的键，格式为"字段名/字段值"
             let slave_node_field_value_key = format!("{}/{}", slave_node_field, primary_field_value);
             // 根据从节点字段路径和值键获取对应的从节点数据
@@ -179,8 +179,9 @@ impl QueryContext {
             .and_then(|relate_field_data| {
                 // 检查从节点是否为列表类型
                 let is_list = self.query_node.get(&slave_node_path)?.is_list;
+                let data = relate_field_data;
                 
-                if relate_field_data.is_empty() { // 记录空数据日志
+                if data.is_array() && data.as_array().unwrap().is_empty() { // 记录空数据日志
                     log::debug!("slave.data: {}.{} is empty", &slave_node_path, slave_node_field_value_key);
                     None
                 } else if is_list { // 列表类型：直接序列化整个数组
@@ -240,56 +241,135 @@ impl QueryContext {
         }
     }
 
-    async fn query_relate_node(&mut self, node: &mut QueryNode, manager: &DataSourceManager) {
+    async fn query_relate_node(&mut self, node: &mut QueryNode, manager: &DataSourceManager) -> Option<Vec<IndexMap<String, Value>>> {
         // 获取当前节点的路径和关联字段映射关系
-        let node_path = node.path.clone();
-        let node_relate_kv = self.slave_relate_kv.get(&node_path).cloned().unwrap_or_default();
+        let node_name = &node.name; // .to_lowercase();
+        let node_path = &node.path.clone();
+        let node_attrs = &node.attributes;
+        let mut sql_attrs: IndexMap<String, Value> = IndexMap::new();
+        for (field, val) in node_attrs {
+            // 处理字段名后缀@的情况
+            let val2 = val.clone();
 
-        // 处理每个关联字段的查询条件
-        for (field_name, primary_node_field_path) in &node_relate_kv {
-            // 从主节点获取关联字段的值
-            if let Some(value) = self.primary_node_related_field_values.get(primary_node_field_path) {
+            if field.ends_with('@') && val.is_string() {
+                let field_key = &field[..field.len() - 1];
+                let mut keys = val.as_str().unwrap().split('/').collect::<Vec<&str>>();
+                let kp = keys.join("/");
+
+                let node_relate_kv = &self.slave_node_relate_data;
+                let value = node_relate_kv.get(&kp);
+
                 // 如果值为空则直接返回
-                if value.is_null() {
-                    return;
-                }
-                // 如果是数组类型，设置分页大小为数组长度
-                if let Value::Array(array) = value {
-                    node.sql_executor.page_size(json!(0), json!(array.len()));
-                }
-                // 解析查询条件
-                node.sql_executor.parse_condition(field_name, value);
-            } else {
-                continue;
-            }
-            // 确保关联字段在查询字段列表中
-            node.sql_executor.add_column(field_name);
-        }
+                let mut val3 = value.unwrap_or(&Value::Null);
+                if val3.is_null() {
+                    let last_key = keys[keys.len() - 1];
+                    keys.remove(keys.len() - 1);
+                    let parent_val = node_relate_kv.get(&keys.join("/"));
+                    let parent = parent_val.unwrap_or(&Value::Null);
+                    // 如果值为空则直接返回
+                    val3 = if parent.is_null() {
+                        &Value::Null
+                    } else {
+                        parent.get(last_key).unwrap_or(&Value::Null)
+                    };
 
-        // 执行节点数据查询
-        if let Some(node_results) = self.query_node_data(node, manager).await {
-            // 处理每个关联字段的查询结果
-            for (field, _) in &node_relate_kv {
-                let mut field_map: IndexMap<String, Vec<IndexMap<String, Value>>> = IndexMap::default();
-                // 处理字段名后缀@的情况
-                let field_key = if field.ends_with('@') {
-                    &field[..field.len() - 1]
-                } else {
-                    field.as_str()
-                };
-                // 遍历查询结果，构建字段映射关系
-                for result in &node_results {
-                    if let Some(field_value) = result.get(field_key) {
-                        // 构建字段路径格式：字段名/字段值
-                        let field_path = format!("{}/{}", field_key, field_value);
-                        // 将结果存入字段映射表
-                        field_map.entry(field_path).or_insert_with(Vec::new).push(result.clone());
+                    if (val3.is_null()) {
+                        return Some(Vec::<IndexMap<String, Value>>::new());
                     }
                 }
-                // 将字段映射表存入从节点关联数据
-                self.slave_node_relate_data.insert(node.path.clone(), field_map);
+
+                sql_attrs.insert(field_key.to_string(), val3.clone());
+                continue;
+            }
+
+            sql_attrs.insert(field.to_string(), val2);
+        }
+
+        let sql_attrs2 = sql_attrs.clone();
+        node.attributes = sql_attrs;
+
+        // 设置查询的表名
+        let _ = node.sql_executor.parse_table(node_name);
+
+        // 解析节点属性中的查询条件
+        for (key, value) in sql_attrs2 {
+            let _ = node.sql_executor.parse_condition(&key, &value);
+        }
+
+        // 处理列表查询的分页逻辑
+        if node.is_list {
+            let parent_path = get_parent_node_path(node_path);
+            // 尝试从父节点获取分页参数
+            if let Some(parent_node_attrs) = self.namespace_node.get(&parent_path).cloned() {
+                // 获取页码和每页数量，如果不存在则使用默认值
+                let page = parent_node_attrs.get("page").cloned().unwrap_or_else(|| json!(0));
+                let count = parent_node_attrs.get("count").cloned().unwrap_or_else(|| json!(DEFAULT_MAX_COUNT));
+                node.sql_executor.page_size(page, count);
+            } else {
+                // 父节点不存在时使用默认分页参数
+                node.sql_executor.page_size(json!(0), json!(DEFAULT_MAX_COUNT));
             }
         }
+
+        // 构建SQL语句
+        let sql = node.sql_executor.to_sql();
+        let params = node.sql_executor.get_string_params();
+
+        println!("sql = {}", sql);
+        println!("params = {:?}", params);
+
+        // 获取数据源和数据库名称
+        let (datasource_name, database_name) = if let Some(ref defaults) = self.database_defaults {
+            (
+                defaults.default_datasource.as_deref().unwrap_or("default"),
+                defaults.default_database.as_deref().unwrap_or("sys")
+            )
+        } else {
+            ("default", "sys")
+        };
+
+        // 执行查询
+        match manager.query_list(datasource_name, database_name, &sql, params).await {
+            Ok(results) => {
+                self.primary_node_data.insert(node.path.clone(), results.clone());
+
+                // 处理每个关联字段的查询结果
+                // 遍历查询结果，构建字段映射关系
+                if ! results.is_empty() {                // 将字段映射表存入从节点关联数据
+                    let node_relate_kv = &self.slave_node_relate_data;
+                    let mut node_relate_kv2 = node_relate_kv.clone();
+
+                    if node.is_list {
+                        let mut i= -1;
+                        for result in &results {
+                            i += 1;
+                            let mut m = Map::new();
+                            for (k, v) in result {
+                                m.insert(k.clone(), v.clone());
+                            }
+                            node_relate_kv2.insert(node.path.clone() + "/" + i.to_string().as_str(), Value::Object(m));
+                        }
+                    } else {
+                        let mut m = Map::new();
+                        let first = results.get(0).unwrap();
+                        for (k, v) in first.clone() {
+                            m.insert(k, v);
+                        }
+                        node_relate_kv2.insert(node.path.clone(), Value::Object(m));
+                    }
+
+                    self.slave_node_relate_data = node_relate_kv2;
+                }
+
+                Some(results)
+            },
+            Err(e) => {
+                self.err_msg = Some(format!("查询失败: {}", e));
+                self.code = HttpCode::InternalServerError;
+                None
+            }
+        }
+
     }
 
     async fn query_node_data(&mut self, node: &mut QueryNode, manager: &DataSourceManager) -> Option<Vec<IndexMap<String, Value>>> {

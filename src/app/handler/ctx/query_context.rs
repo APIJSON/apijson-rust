@@ -34,7 +34,7 @@ pub struct QueryContext {
     // 被关联字段的值(主节点字段路径 -> 主节点字段值(默认Value::Null, 结果是array or object))
     pub primary_node_related_field_values: IndexMap<String, Value>,
     // 从节点关联字段映射表(从节点父路径 -> 字段对应的值), 用于主节点获取从节点数据
-    pub slave_node_relate_data: IndexMap<String, IndexMap<String, Vec<IndexMap<String, Value>>>>,
+    pub slave_node_relate_data: IndexMap<String, Value>,
 
 }
 
@@ -48,8 +48,6 @@ pub struct QueryNode {
     pub is_list: bool,
     /// 属性映射
     pub attributes: IndexMap<String, Value>,
-    // 权重（不再使用，由 QueryContext.node_weight 管理，保留字段以兼容）
-    pub weight: i32,
     // SQL执行器，负责生成和执行SQL
     pub sql_executor: QueryExecutor,
 }
@@ -134,7 +132,7 @@ impl QueryContext {
                                 let field_name = field_key[..(field_key.len()-1)].to_string();
                                 let field_path = format!("{}/{}", &node_path, field_name);
                                  // 依赖关系是唯一索引则节点数据结果一定不是 list
-                                 if field_name.as_str() == "id" { is_list = false; }
+                                 // if field_name.as_str() == "id" { is_list = false; }
                                 // 关联关系
                                 if let Value::String(primary_field_path) = field_value {
                                     slave_relate_kv.entry(node_path.clone()).or_default().insert(field_name, primary_field_path.to_string());
@@ -146,9 +144,11 @@ impl QueryContext {
                                     let primary_related_field = &primary_field_path[(index+1)..];
                                     primary_relate_kv.entry(primary_node_path.to_string()).or_default().insert(primary_related_field.to_string(), field_path.to_string());
                                 }
-                            } else { // 普通查询属性
-                                attributes.insert(field_key.clone(), field_value.clone());
+                            // } else {
+
                             }
+                            // 普通查询属性
+                            attributes.insert(field_key.clone(), field_value.clone());
                         }
                     }
                 }
@@ -157,7 +157,6 @@ impl QueryContext {
                 let shared_node = Arc::new(QueryNode {
                     name: (&name).to_string(),
                     path: node_path.clone(),
-                    weight: 0,
                     is_list,
                     attributes,
                     sql_executor: QueryExecutor::new(datasource_kind.clone()),
