@@ -1,6 +1,6 @@
 use regex::Regex;
 
-const REGEXP_NUM: &str = r"^\d{4}-\d{2}-\d{2}$";
+const REGEXP_NUM: &str = r"^[0-9]*$";
 const REGEXP_NAME: &str = r"^[a-zA-Z][a-zA-Z0-9_]*$";
 const REGEXP_BIG_NAME: &str = r"^[A-Z][a-zA-Z0-9_]*$";
 const REGEXP_SMALL_NAME: &str = r"^[a-z][a-zA-Z0-9_]*$";
