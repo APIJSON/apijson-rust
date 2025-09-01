@@ -16,7 +16,7 @@ pub struct QueryExecutor {
     where_clauses: Vec<String>,
     params: Vec<Value>,
     group: Option<String>,
-    having: Option<String>,
+    having: Vec<String>,
     order: Option<String>,
     page: i32,
     limit: i32,
@@ -32,7 +32,7 @@ impl QueryExecutor {
             where_clauses: vec![],
             params: vec![],
             group: None,
-            having: None,
+            having: Vec::new(), // 报错 vec![],
             order: None,
             page: 0,
             limit: 1,
@@ -107,6 +107,17 @@ impl QueryExecutor {
             sql.push_str(" WHERE ");
             sql.push_str(&self.where_clauses.join(" AND "));
         }
+
+        // GROUP BY子句
+        if let Some(group) = &self.group {
+            sql.push_str(&format!(" GROUP BY {}", group));
+        }
+
+        // HAVING子句
+        if !self.having.is_empty() {
+            sql.push_str(" HAVING ");
+            sql.push_str(&self.having.join(" AND "));
+        }
         
         // ORDER BY子句
         if let Some(order) = &self.order {
@@ -151,7 +162,7 @@ impl QueryExecutor {
                     if let Value::String(cols) = value {
                         // 使用dialect的build_columns方法处理字段选择和别名
                         let dialect = self.get_dialect();
-                        let columns = dialect.build_columns(cols.replace(";", ", ").as_str());
+                        let columns = dialect.build_columns(cols.as_str());
                         self.columns = columns;
                     }
                 }
@@ -162,7 +173,7 @@ impl QueryExecutor {
                 }
                 "having" => {
                     if let Value::String(having) = value {
-                        self.having = Some(having.to_string().replace(";", ", "));
+                        self.having = having.split(";").map(|s| s.to_string()).collect::<Vec<String>>();
                     }
                 }
                 "order" => {
@@ -176,6 +187,7 @@ impl QueryExecutor {
         }
         
         // 处理各种查询条件 https://github.com/Tencent/APIJSON/blob/master/Document.md#3.2
+        // https://github.com/Tencent/APIJSON/blob/master/APIJSONORM/src/main/java/apijson/JSONMap.java#L152-L190
         if field.ends_with('$') {
             // 模糊搜索 https://github.com/Tencent/APIJSON/blob/master/APIJSONORM/src/main/java/apijson/orm/AbstractSQLConfig.java#L4114-L4232
             let actual_field = &field[..field.len() - 1];
@@ -213,7 +225,7 @@ impl QueryExecutor {
                 }
             }
         } else if field.ends_with("%") {
-            let actual_field = &field[..field.len() - 2];
+            let actual_field = &field[..field.len() - 1];
             let dialect = self.get_dialect();
             let escaped_field = dialect.escape_identifier(actual_field);
             self.where_clauses.push(format!("{} BETWEEN ? AND ?", escaped_field));

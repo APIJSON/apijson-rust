@@ -2,6 +2,8 @@ use serde_json::{Number, Value, Map};
 use log::{debug, info, warn, error};
 use crate::app::common::rpc::HttpCode;
 
+// https://github.com/Tencent/APIJSON/blob/master/APIJSONORM/src/main/java/apijson/JSONResponse.java#L51-L80
+
 pub const KEY_CODE: &str = "code";
 pub const KEY_MSG: &str = "msg";
 pub const MSG_SUCCESS: &str = "success";
