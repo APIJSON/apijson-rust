@@ -107,10 +107,12 @@ cargo run
 
 ---
 
-**Panda Base** - 让多数据源管理变得简单而优雅 🐼
-
 ## 测试环境运行
 初始化数据库
 ```bash
 docker compose up -d 
 ```
+
+## 我要赞赏 <br />
+创作不易，右上角点 ⭐Star 来支持/收藏下吧，谢谢 ^_^
+https://gitee.com/APIJSON/panda-base
