@@ -1,4 +1,4 @@
-# Panda Base - 多数据源管理系统
+# APIJSON-Rust - 腾讯 APIJSON Rust 版 & 多数据源管理系统
 
 一个优雅、高性能的 Rust 多数据源管理系统，支持 MySQL 和 PostgreSQL 数据库的统一管理和操作。
 
