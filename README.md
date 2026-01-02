@@ -1,6 +1,8 @@
 # APIJSON-Rust
 
-腾讯 APIJSON Rust 版，一个优雅、高性能的多数据源管理系统，支持 MySQL, PostgreSQL 的统一管理和操作。
+腾讯 APIJSON Rust 版 - 🏆 实时 零代码、全功能、强安全 ORM 库 🚀 <br />
+后端接口和文档零代码，前端(客户端) 定制返回 JSON 的数据和结构。 <br />
+包含一个优雅、高性能的多数据源管理系统，支持 MySQL, PostgreSQL 的统一管理和操作。
 
 ## 🚀 特性
 
