@@ -113,6 +113,13 @@ cargo run
 docker compose up -d 
 ```
 
+## 项目申明
+本项目来源于 fork https://gitee.com/panda-ai/panda-base ，官方介绍是 APIJSON Rust 版， <br />
+但我发现基础功能及实现和 APIJSON 规范稍有差异，所以调整至严格遵循 APIJSON 规范并基础功能正常可用后提了 PR， <br />
+但 Gitee 上原作者 @ReliefZk_admin (GitHub 上可能是 @zk-hillresearch) 并未 merge 这个 PR，后面还删除了上游仓库， <br />
+所以我在 GitHub 和 Gitee 各保留一个仓库，方便需要的开发者使用及继续完善，希望大家可以直接贡献或者另开 Rust 版时有所参考。<br />
+非常感谢原作者对该项目及 APIJSON 生态的贡献，如果觉得有什么不合适的请联系 tommylemon@qq.com，谢谢~ <br />
+
 ## 我要赞赏 <br />
 创作不易，右上角点亮 ⭐Star 来支持/收藏下吧，谢谢 ^_^ <br />
 https://gitee.com/APIJSON/apijson-rust
