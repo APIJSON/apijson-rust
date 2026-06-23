@@ -14,7 +14,7 @@
 - **类型安全**: 利用 Rust 的类型系统确保运行时安全
 
 <img width="1496" height="934" alt="Screenshot 2026-06-23 at 23 30 12" src="https://github.com/user-attachments/assets/4625df54-7379-46b3-bc01-bc71098acad7" />
-<img width="1496" height="934" alt="Screenshot 2026-06-23 at 23 30 12" src="https://github.com/user-attachments/assets/e4085d94-576f-412d-99a5-3d2683ee6a38" />
+<img width="1496" height="932" alt="Screenshot 2026-06-23 at 23 31 51" src="https://github.com/user-attachments/assets/e0741291-c33a-4e06-8440-b4a203e98535" />
 
 
 ## 🛠️ 安装和配置
