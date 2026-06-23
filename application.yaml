@@ -5,17 +5,17 @@ datasource:
   # MySQL 数据源配置
   - name: ds_mysql
     kind: mysql
-    username: ${MYSQL_USER:-panda_user}
-    password: ${MYSQL_PASSWORD:-panda123}
-    url: "mysql://${MYSQL_USER:-panda_user}:${MYSQL_PASSWORD:-panda123}@${MYSQL_HOST:-localhost}:${MYSQL_PORT:-3306}"
-    database: ["panda_db", "panda_db_1"]
+    username: root
+    password: apijson
+    url: "mysql://root:apijson@localhost:3306"
+    database: ["sys"]
     default: true
     
-  # PostgreSQL 数据源配置
-  - name: ds_pg
-    kind: postgres
-    username: ${POSTGRES_USER:-panda_user}
-    password: ${POSTGRES_PASSWORD:-panda123}
-    url: "postgres://${POSTGRES_USER:-panda_user}:${POSTGRES_PASSWORD:-panda123}@${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}"
-    database: ["panda_db"]
-    default: false
+#  # PostgreSQL 数据源配置
+#  - name: ds_pg
+#    kind: postgres
+#    username: root
+#    password: apijson
+#    url: "postgres://root:apijson@localhost:5432/postgres"
+#    database: ["sys"]
+#    default: false

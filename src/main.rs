@@ -37,13 +37,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("📊 应用统计信息:\n{}", stats);
     
     // 启动HTTP服务器
-    let port = 8080;
+    let port = 8088;
     info!("🌐 启动HTTP服务器，端口: {}", port);
     
     start_server(datasource_manager, port).await?;
     
     Ok(())
 }
+
 
 //初始化tk log
 fn init_tk_log() {

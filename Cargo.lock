@@ -59,6 +59,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "apijson-rust"
+version = "1.0.0"
+dependencies = [
+ "axum",
+ "base64",
+ "chrono",
+ "dotenvy",
+ "fnv",
+ "indexmap",
+ "lazy_static",
+ "log",
+ "regex",
+ "rustflake",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "tklog",
+ "tokio",
+ "tower-http",
+ "uuid",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1160,30 +1184,6 @@ name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
-
-[[package]]
-name = "panda-base"
-version = "1.0.0"
-dependencies = [
- "axum",
- "base64",
- "chrono",
- "dotenvy",
- "fnv",
- "indexmap",
- "lazy_static",
- "log",
- "regex",
- "rustflake",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlx",
- "tklog",
- "tokio",
- "tower-http",
- "uuid",
-]
 
 [[package]]
 name = "parking"
