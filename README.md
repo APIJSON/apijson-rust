@@ -1,4 +1,4 @@
-# APIJSON-Rust
+# APIJSON-Rust [<img src="https://devin.ai/assets/deepwiki-badge.png" alt="Ask DeepWiki.com" height="20"/>](https://deepwiki.com/APIJSON/apijson-rust)
 
 腾讯 APIJSON Rust 版 - 🏆 实时 零代码、全功能、强安全 ORM 库 🚀 <br />
 后端接口和文档零代码，前端(客户端) 定制返回 JSON 的数据和结构。 <br />
