@@ -4,9 +4,10 @@
 后端接口和文档零代码，前端(客户端) 定制返回 JSON 的数据和结构。 <br />
 包含一个优雅、高性能的多数据源管理系统，支持 MySQL, PostgreSQL 的统一管理和操作。
 
-<img width="2992" height="1866" alt="image" src="https://github.com/user-attachments/assets/e85b396c-0b91-4ccd-9463-3e7b055a1af1" />
+![](https://github.com/user-attachments/assets/e85b396c-0b91-4ccd-9463-3e7b055a1af1)
 
-<img width="1496" height="934" alt="Screenshot 2026-06-23 at 23 30 12" src="https://github.com/user-attachments/assets/4625df54-7379-46b3-bc01-bc71098acad7" />
+![](https://github.com/user-attachments/assets/4625df54-7379-46b3-bc01-bc71098acad7)
+
 
 ## 🚀 特性
 
