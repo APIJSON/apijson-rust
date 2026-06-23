@@ -6,6 +6,8 @@
 
 <img width="2992" height="1866" alt="image" src="https://github.com/user-attachments/assets/e85b396c-0b91-4ccd-9463-3e7b055a1af1" />
 
+<img width="1496" height="934" alt="Screenshot 2026-06-23 at 23 30 12" src="https://github.com/user-attachments/assets/4625df54-7379-46b3-bc01-bc71098acad7" />
+
 ## 🚀 特性
 
 - **多数据源支持**: 同时管理多个 MySQL 和 PostgreSQL 数据源
@@ -14,9 +16,6 @@
 - **配置驱动**: 基于 YAML 配置文件的声明式配置管理
 - **异步支持**: 基于 Tokio 的异步运行时，支持高并发操作
 - **类型安全**: 利用 Rust 的类型系统确保运行时安全
-
-<img width="1496" height="934" alt="Screenshot 2026-06-23 at 23 30 12" src="https://github.com/user-attachments/assets/4625df54-7379-46b3-bc01-bc71098acad7" />
-
 
 ## 🛠️ 安装和配置
 
