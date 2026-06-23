@@ -61,7 +61,7 @@ pub fn create_router(datasource_manager: Arc<DataSourceManager>) -> Router {
         // 这里使用 `/:method` 捕获，包括带有 .json 后缀的情形（例如 get.json），在处理器中去掉后缀
         .route("/:method", post(curd_handler))
         .route("/health", get(health_check))
-        .layer(CorsLayer::permissive())
+        .layer(CorsLayer::very_permissive())
 }
 
 /// 健康检查
