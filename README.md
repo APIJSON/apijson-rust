@@ -13,6 +13,10 @@
 - **异步支持**: 基于 Tokio 的异步运行时，支持高并发操作
 - **类型安全**: 利用 Rust 的类型系统确保运行时安全
 
+<img width="1496" height="934" alt="Screenshot 2026-06-23 at 23 30 12" src="https://github.com/user-attachments/assets/4625df54-7379-46b3-bc01-bc71098acad7" />
+<img width="1496" height="934" alt="Screenshot 2026-06-23 at 23 30 12" src="https://github.com/user-attachments/assets/e4085d94-576f-412d-99a5-3d2683ee6a38" />
+
+
 ## 🛠️ 安装和配置
 
 ### 1. 克隆项目
