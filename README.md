@@ -120,6 +120,13 @@ cargo run
 docker compose up -d 
 ```
 
+## 概念、对比及接口使用文档
+https://github.com/Tencent/APIJSON/blob/master/Document-Chinese.md
+
+## 反馈问题或建议
+有问题可以去 Tencent/APIJSON 提 issue：<br />
+https://github.com/Tencent/APIJSON/issues
+
 ## 项目申明
 本项目来源于 fork https://gitee.com/panda-ai/panda-base ，官方介绍是 APIJSON Rust 版， <br />
 但我发现基础功能及实现和 APIJSON 规范稍有差异，所以调整至严格遵循 APIJSON 规范并可用后提了 PR， <br />
