@@ -1,6 +1,6 @@
 # APIJSON-Rust [<img src="https://devin.ai/assets/deepwiki-badge.png" alt="Ask DeepWiki.com" height="20"/>](https://deepwiki.com/APIJSON/apijson-rust)
 
-腾讯 APIJSON Rust 版 - 🏆 实时 零代码、全功能、强安全 ORM 库 🚀 <br />
+APIJSON Rust 版 - 🏆 实时 零代码、全功能、强安全 ORM 库 🚀 <br />
 后端接口和文档零代码，前端(客户端) 定制返回 JSON 的数据和结构。 <br />
 包含一个优雅、高性能的多数据源管理系统，支持 MySQL, PostgreSQL 等统一管理和操作。
 
@@ -121,11 +121,11 @@ docker compose up -d
 ```
 
 ## 概念、对比及接口使用文档
-https://github.com/Tencent/APIJSON/blob/master/Document-Chinese.md
+https://github.com/APIJSON/APIJSON/blob/master/Document-Chinese.md
 
 ## 反馈问题或建议
-有问题可以去 Tencent/APIJSON 提 issue：<br />
-https://github.com/Tencent/APIJSON/issues
+有问题可以去 APIJSON 主项目提 issue：<br />
+https://github.com/APIJSON/APIJSON/issues
 
 ## 项目申明
 本项目来源于 fork https://gitee.com/panda-ai/panda-base ，官方介绍是 APIJSON Rust 版， <br />
